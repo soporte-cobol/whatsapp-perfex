@@ -45,7 +45,9 @@ app.post('/ai/get-time', (req, res) => {
  */
 app.post('/ai/identify-customer', authenticateWebhook, async (req, res) => {
     const { phone } = req.body;
-    if (!phone) return res.status(400).json({ error: 'phone es requerido' });
+    // Limpiamos el teléfono y validamos longitud mínima
+    const cleanPhone = phone ? phone.replace(/\D/g, '') : '';
+    if (cleanPhone.length < 7) return res.status(400).json({ error: 'Número de teléfono no válido o incompleto' });
 
     try {
         const data = await perfex.getCustomerByPhone(phone);
@@ -61,7 +63,8 @@ app.post('/ai/identify-customer', authenticateWebhook, async (req, res) => {
  */
 app.post('/ai/get-invoices', authenticateWebhook, async (req, res) => {
     const { customerId } = req.body;
-    if (!customerId) return res.status(400).json({ error: 'customerId es requerido' });
+    // Validamos que el ID sea numérico
+    if (!customerId || isNaN(customerId)) return res.status(400).json({ error: 'ID de cliente no válido' });
     
     try {
         const data = await perfex.getInvoices(customerId);
@@ -76,7 +79,9 @@ app.post('/ai/get-invoices', authenticateWebhook, async (req, res) => {
  */
 app.post('/ai/get-tickets', authenticateWebhook, async (req, res) => {
     const { email } = req.body;
-    if (!email) return res.status(400).json({ error: 'email es requerido' });
+    // Validación básica de formato de email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email || !emailRegex.test(email)) return res.status(400).json({ error: 'Formato de email no válido' });
 
     try {
         const data = await perfex.getSupportTickets(email);

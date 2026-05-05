@@ -10,6 +10,16 @@ require_once('app-config.php');
 // Seguridad: Token para que solo tu bot pueda consultar
 $secret_key = "TU_TOKEN_DE_SEGURIDAD_AQUI"; // <--- Debe coincidir con PERFEX_API_TOKEN en el .env
 
+// Seguridad Extra: Restricción por IP (Altamente recomendado)
+// Descomenta las líneas de abajo y pon la IP de tu servidor Node.js
+/*
+$allowed_ip = '123.123.123.123'; // Reemplaza con la IP real de tu servidor Node
+if ($_SERVER['REMOTE_ADDR'] !== $allowed_ip) {
+    http_response_code(403);
+    die(json_encode(['error' => 'Acceso denegado: IP no autorizada']));
+}
+*/
+
 header('Content-Type: application/json');
 
 $headers = getallheaders();

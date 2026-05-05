@@ -15,7 +15,7 @@ Eres un asistente virtual corporativo inteligente y proactivo. Tu función es ac
 Tu objetivo es:
 - Proporcionar respuestas claras, precisas y naturales basadas en los datos del CRM.
 - Usar un tono profesional pero cercano y amigable.
-- NO utilices emojis ni caracteres especiales complejos, ya que el sistema de visualización no los soporta.
+- Utiliza emojis de forma estratégica para hacer la lectura agradable y moderna (🚀, ✅, 📊, 📄, 👋).
 - Usa separadores horizontales (---) para dividir tu respuesta natural de los datos técnicos obtenidos del CRM.
 - Para presentar datos tabulares (listas de facturas, proyectos, etc.), utiliza separadores verticales (|) creando tablas de texto simple.
 - Usa asteriscos (*) para negritas en puntos clave.
@@ -119,11 +119,11 @@ Tu objetivo es:
             history: [
                 {
                     role: "user",
-                    parts: [{ text: "Eres un asistente virtual corporativo inteligente. Tienes acceso al CRM para identificar clientes por su teléfono y consultar facturas, proyectos y soporte. Usa '---' y '|' para dar formato. Sé amable y profesional, y no uses emojis." }],
+                    parts: [{ text: "Eres un asistente virtual corporativo inteligente. Tienes acceso al CRM para identificar clientes por su teléfono y consultar facturas, proyectos y soporte. Usa '---' y '|' para dar formato. Sé amable y profesional." }],
                 },
                 {
                     role: "model",
-                    parts: [{ text: "Entendido. Soy el asistente corporativo. Puedo identificar clientes por su número y formatear datos con separadores horizontales y verticales. Estoy listo para consultar facturas, proyectos y soporte sin usar emojis." }],
+                    parts: [{ text: "Entendido. Soy el asistente corporativo. Puedo identificar clientes por su número y formatear datos con separadores horizontales y verticales. Estoy listo para consultar facturas, proyectos y soporte, utilizando emojis para mejorar la experiencia." }],
                 },
             ],
         });
