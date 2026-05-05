@@ -8,7 +8,7 @@ class WhatsAppService {
     constructor(secret, accountId) {
         this.secret = secret;
         this.accountId = accountId;
-        this.baseUrl = 'https://uno.cobol.com.co/api';
+        this.baseUrl = process.env.WHATSAPP_API_BASE_URL || 'https://uno.cobol.com.co/api';
     }
 
     /**

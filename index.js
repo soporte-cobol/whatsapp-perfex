@@ -139,6 +139,6 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`🚀 Webhook de IA para GM GROUP corriendo en puerto ${PORT}`);
+    console.log(`🚀 Webhook de IA corriendo en puerto ${PORT}`);
     console.log(`🔗 Endpoints listos para configurar en el panel de Cobol`);
 });

@@ -8,7 +8,7 @@ define('BASEPATH', 'dummy');
 require_once('app-config.php');
 
 // Seguridad: Token para que solo tu bot pueda consultar
-$secret_key = "MiClaveSegura_987654321_AgenciaViajes"; // <--- PEGA TU TOKEN AQUÍ
+$secret_key = "TU_TOKEN_DE_SEGURIDAD_AQUI"; // <--- Debe coincidir con PERFEX_API_TOKEN en el .env
 
 header('Content-Type: application/json');
 

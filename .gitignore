@@ -2,5 +2,3 @@ node_modules/
 .env
 *.log
 .DS_Store
-# Excluimos el dump de SQL por seguridad en el repo público
-portalgmgroup_n5Jp2OqmrP.sql
