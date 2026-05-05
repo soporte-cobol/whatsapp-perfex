@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const PerfexService = require('./perfexService');
+const WhatsAppService = require('./whatsappService');
 
 const app = express();
 app.use(express.json());
@@ -9,6 +10,11 @@ app.use(express.json());
 const perfex = new PerfexService(
     process.env.PERFEX_BASE_URL,
     process.env.PERFEX_API_TOKEN
+);
+
+const whatsapp = new WhatsAppService(
+    process.env.WHATSAPP_API_SECRET,
+    process.env.WHATSAPP_ACCOUNT_ID
 );
 
 // Middleware de seguridad para los endpoints de Cobol
@@ -46,11 +52,80 @@ app.post('/ai/get-time', (req, res) => {
 app.post('/ai/identify-customer', authenticateWebhook, async (req, res) => {
     const { phone } = req.body;
     // Limpiamos el teléfono y validamos longitud mínima
-    const cleanPhone = phone ? phone.replace(/\D/g, '') : '';
-    if (cleanPhone.length < 7) return res.status(400).json({ error: 'Número de teléfono no válido o incompleto' });
-
+    if (!phone || phone.replace(/\D/g, '').length < 7) return res.status(400).json({ error: 'Número de teléfono no válido o incompleto' });
     try {
         const data = await perfex.getCustomerByPhone(phone);
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * Endpoint para identificar por email
+ */
+app.post('/ai/identify-by-email', authenticateWebhook, async (req, res) => {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email es requerido' });
+    try {
+        const data = await perfex.getCustomerByEmail(email);
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * Endpoint para identificar por NIF/NIT (VAT)
+ */
+app.post('/ai/identify-by-vat', authenticateWebhook, async (req, res) => {
+    const { vat } = req.body;
+    if (!vat) return res.status(400).json({ error: 'NIF/NIT es requerido' });
+    try {
+        const data = await perfex.getCustomerByVat(vat);
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * Endpoint para crear contacto
+ */
+app.post('/ai/create-contact', authenticateWebhook, async (req, res) => {
+    const { email } = req.body;
+    // Validación rigurosa de formato de email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (email && !emailRegex.test(email)) {
+        return res.status(400).json({ error: 'El formato del correo electrónico no es válido' });
+    }
+    try {
+        const data = await perfex.createContact(req.body);
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * Endpoint para crear ticket
+ */
+app.post('/ai/create-ticket', authenticateWebhook, async (req, res) => {
+    const { priority, subject, customerId } = req.body;
+    try {
+        const data = await perfex.createTicket(req.body);
+        
+        // Si el ticket es urgente (Prioridad 3), enviamos WhatsApp al administrador
+        if (data.success && priority === 3) {
+            const adminPhone = process.env.ADMIN_WHATSAPP_NUMBER; 
+            if (adminPhone) {
+                const alertMsg = `🚨 *TICKET URGENTE DETECTADO*\n\n*Asunto:* ${subject}\n*Cliente ID:* ${customerId}\n\nLa IA ha categorizado este caso como alta prioridad. Por favor, revisar el CRM. 🚀`;
+                await whatsapp.sendText(adminPhone, alertMsg).catch(e => 
+                    console.error('Error enviando alerta WhatsApp al admin:', e.message)
+                );
+            }
+        }
+
         res.json(data);
     } catch (error) {
         res.status(500).json({ error: error.message });

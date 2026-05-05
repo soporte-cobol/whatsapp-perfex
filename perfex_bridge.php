@@ -39,6 +39,7 @@ $action = $_GET['action'] ?? '';
 $customer_id = $_GET['customer_id'] ?? '';
 $email = $_GET['email'] ?? '';
 $phone = $_GET['phone'] ?? '';
+$vat = $_GET['vat'] ?? '';
 
 $response = [];
 
@@ -47,12 +48,61 @@ switch ($action) {
         // Buscamos en tblcontacts ya que allí residen los teléfonos de los contactos individuales
         // Limpiamos el teléfono de caracteres no numéricos para una búsqueda más flexible
         $cleanPhone = preg_replace('/[^0-9]/', '', $phone);
-        $likePhone = "%" . $cleanPhone . "%";
-        $stmt = $mysqli->prepare("SELECT userid as customerId, firstname, lastname FROM tblcontacts WHERE phonenumber LIKE ? LIMIT 1");
+        
+        // Si el número es largo (ej: 12 dígitos como 573001234567), 
+        // extraemos los últimos 10 para evitar problemas con el prefijo internacional
+        $searchNumber = (strlen($cleanPhone) >= 10) ? substr($cleanPhone, -10) : $cleanPhone;
+        
+        $likePhone = "%" . $searchNumber . "%";
+        
+        $stmt = $mysqli->prepare("
+            SELECT c.userid as customerId, c.id as contactId, c.firstname, c.lastname, cl.company 
+            FROM tblcontacts c 
+            JOIN tblclients cl ON c.userid = cl.userid 
+            WHERE c.phonenumber LIKE ? LIMIT 1");
         $stmt->bind_param("s", $likePhone);
         $stmt->execute();
         $result = $stmt->get_result()->fetch_assoc();
         $response = $result ? $result : ['error' => 'Cliente no encontrado'];
+        break;
+
+    case 'get_customer_by_email':
+        $stmt = $mysqli->prepare("
+            SELECT c.userid as customerId, c.id as contactId, c.firstname, c.lastname, cl.company 
+            FROM tblcontacts c 
+            JOIN tblclients cl ON c.userid = cl.userid 
+            WHERE c.email = ? LIMIT 1");
+        $stmt->bind_param("s", $email);
+        $stmt->execute();
+        $result = $stmt->get_result()->fetch_assoc();
+        $response = $result ? $result : ['error' => 'Cliente no encontrado'];
+        break;
+
+    case 'get_customer_by_vat':
+        $stmt = $mysqli->prepare("SELECT userid as customerId, company FROM tblclients WHERE vat = ? LIMIT 1");
+        $stmt->bind_param("s", $vat);
+        $stmt->execute();
+        $client = $stmt->get_result()->fetch_assoc();
+        
+        if ($client) {
+            // Buscamos el contacto principal para que el ticket quede bien asignado
+            $stmt_contact = $mysqli->prepare("SELECT id as contactId, firstname, lastname FROM tblcontacts WHERE userid = ? AND is_primary = 1 LIMIT 1");
+            $stmt_contact->bind_param("i", $client['customerId']);
+            $stmt_contact->execute();
+            $contact = $stmt_contact->get_result()->fetch_assoc();
+            
+            // FALLBACK: Si no hay un contacto marcado como principal, tomamos el primero que encontremos
+            if (!$contact) {
+                $stmt_fallback = $mysqli->prepare("SELECT id as contactId, firstname, lastname FROM tblcontacts WHERE userid = ? ORDER BY id ASC LIMIT 1");
+                $stmt_fallback->bind_param("i", $client['customerId']);
+                $stmt_fallback->execute();
+                $contact = $stmt_fallback->get_result()->fetch_assoc();
+            }
+            
+            $response = array_merge($client, $contact ? $contact : []);
+        } else {
+            $response = ['error' => 'Cliente no encontrado'];
+        }
         break;
 
     case 'get_invoices':
@@ -88,6 +138,46 @@ switch ($action) {
         $stmt->bind_param("i", $customer_id);
         $stmt->execute();
         $response = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        break;
+
+    case 'create_ticket':
+        $data = json_decode(file_get_contents('php://input'), true);
+        $subject = $data['subject'] ?? 'Ticket desde WhatsApp';
+        $message = $data['message'] ?? '';
+        $userid = $data['customerId'] ?? 0;
+        $contactid = $data['contactId'] ?? 0;
+        $priority = $data['priority'] ?? 1; // 1: Baja, 2: Media, 3: Alta
+        
+        // Corregimos la consulta para que acepte el parámetro de prioridad
+        $stmt = $mysqli->prepare("INSERT INTO tbltickets (subject, message, userid, contactid, department, priority, status, date) VALUES (?, ?, ?, ?, 1, ?, 1, NOW())");
+        $stmt->bind_param("ssiii", $subject, $message, $userid, $contactid, $priority);
+        
+        if ($stmt->execute()) {
+            $ticketid = $stmt->insert_id;
+
+            $response = ['success' => true, 'ticketid' => $ticketid];
+        } else {
+            $response = ['error' => 'Error al crear el ticket'];
+        }
+        break;
+
+    case 'create_contact':
+        $data = json_decode(file_get_contents('php://input'), true);
+        $firstname = $data['firstname'] ?? '';
+        $lastname = $data['lastname'] ?? '';
+        $email = $data['email'] ?? '';
+        $userid = $data['customerId'] ?? 0;
+        $phone = $data['phone'] ?? '';
+
+        // Insertar nuevo contacto
+        $stmt = $mysqli->prepare("INSERT INTO tblcontacts (firstname, lastname, email, userid, phonenumber, datecreated) VALUES (?, ?, ?, ?, ?, NOW())");
+        $stmt->bind_param("sssis", $firstname, $lastname, $email, $userid, $phone);
+
+        if ($stmt->execute()) {
+            $response = ['success' => true, 'contactId' => $stmt->insert_id];
+        } else {
+            $response = ['error' => 'Error al crear el contacto'];
+        }
         break;
 
     default:

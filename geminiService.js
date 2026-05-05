@@ -11,20 +11,31 @@ class GeminiService {
         // Configuración extraída del dashboard de Cobol
         this.systemInstruction = `
 Eres un asistente virtual corporativo inteligente y proactivo. Tu función es actuar como un puente entre el sistema de gestión (CRM) y el cliente a través de WhatsApp.
+Tus respuestas deben integrar emojis y formato enriquecido de manera natural y obligatoria en cada mensaje.
 
 Tu objetivo es:
 - Proporcionar respuestas claras, precisas y naturales basadas en los datos del CRM.
 - Usar un tono profesional pero cercano y amigable.
-- Utiliza emojis de forma estratégica para hacer la lectura agradable y moderna (🚀, ✅, 📊, 📄, 👋).
+- Utiliza SIEMPRE emojis de forma estratégica e implícita en el texto de tus respuestas para que viajen en el flujo de datos (JSON/XML). Esto hace la lectura agradable y moderna (🚀, ✅, 📊, 📄, 👋).
 - Usa separadores horizontales (---) para dividir tu respuesta natural de los datos técnicos obtenidos del CRM.
-- Para presentar datos tabulares (listas de facturas, proyectos, etc.), utiliza separadores verticales (|) creando tablas de texto simple.
 - Usa asteriscos (*) para negritas en puntos clave.
 - Si los datos muestran deudas o pendientes, informa con cortesía.
 - Siempre termina con un llamado a la acción o una pregunta para ayudar más.
-- Usa listas con viñetas para datos múltiples.
-- Evita bloques de texto densos.
-- Si no conoces el ID del cliente, utiliza la herramienta 'getCustomerByPhone' proporcionando el número de teléfono del usuario para identificarlo.
-- Si no encuentras información específica, indica que un asesor humano revisará el caso.
+
+ESTRATEGIA DE IDENTIFICACIÓN:
+1. Primero intenta con 'getCustomerByPhone'.
+2. Si no hay resultados, solicita amablemente el correo electrónico y usa 'getCustomerByEmail'.
+3. Si aún no hay resultados, solicita el NIF o NIT (identificación fiscal) y usa 'getCustomerByVat'.
+
+GESTIÓN DE SOPORTE:
+Si el cliente solicita algo que no puedes resolver (problemas técnicos, reclamos, solicitudes complejas), DEBES resumir la solicitud y crear un ticket usando 'createTicket'. 
+IMPORTANTE: Antes de crear un ticket, asegúrate de haber obtenido el 'customerId' y el 'contactId' mediante los pasos de identificación.
+
+SI NO HAY CONTACTO:
+Si identificas la empresa por NIT pero no hay contactos asociados, solicita amablemente el Nombre, Apellido y Correo del cliente. Verifica que el correo tenga un formato válido (ej: usuario@dominio.com) antes de usar 'createContact'.
+
+PRIORIDAD:
+Evalúa el mensaje del cliente. Si detectas palabras como "Urgente", "Emergencia", "Grave" o "De inmediato", asigna prioridad 3 (Alta) al ticket. De lo contrario, usa 1 (Baja) o 2 (Media) según tu criterio.
 `;
 
         // Definición de herramientas (herramientas que la IA puede llamar)
@@ -43,12 +54,34 @@ Tu objetivo es:
                         }
                     },
                     {
+                        name: "getCustomerByEmail",
+                        description: "Busca un cliente por su dirección de correo electrónico.",
+                        parameters: {
+                            type: "object",
+                            properties: {
+                                email: { type: "string", description: "El correo electrónico del cliente" }
+                            },
+                            required: ["email"]
+                        }
+                    },
+                    {
+                        name: "getCustomerByVat",
+                        description: "Busca un cliente por su NIF o NIT (identificación fiscal).",
+                        parameters: {
+                            type: "object",
+                            properties: {
+                                vat: { type: "string", description: "El NIF, NIT o identificación fiscal del cliente" }
+                            },
+                            required: ["vat"]
+                        }
+                    },
+                    {
                         name: "getInvoices",
                         description: "Consulta las facturas de un cliente específico en Perfex CRM",
                         parameters: {
                             type: "object",
                             properties: {
-                                customerId: { type: "string", description: "El ID del cliente en el CRM" }
+                                customerId: { type: "integer", description: "El ID del cliente en el CRM" }
                             },
                             required: ["customerId"]
                         }
@@ -70,7 +103,7 @@ Tu objetivo es:
                         parameters: {
                             type: "object",
                             properties: {
-                                customerId: { type: "string", description: "El ID del cliente" }
+                                customerId: { type: "integer", description: "El ID del cliente" }
                             },
                             required: ["customerId"]
                         }
@@ -81,7 +114,7 @@ Tu objetivo es:
                         parameters: {
                             type: "object",
                             properties: {
-                                customerId: { type: "string", description: "El ID del cliente" }
+                                customerId: { type: "integer", description: "El ID del cliente" }
                             },
                             required: ["customerId"]
                         }
@@ -95,6 +128,36 @@ Tu objetivo es:
                                 timezone: { type: "string", description: "Identificador de zona horaria (ej: Europe/Rome)" }
                             },
                             required: ["timezone"]
+                        }
+                    },
+                    {
+                        name: "createTicket",
+                        description: "Crea un ticket de soporte en el CRM cuando el bot no puede resolver la duda.",
+                        parameters: {
+                            type: "object",
+                            properties: {
+                                customerId: { type: "integer", description: "El ID del cliente" },
+                                contactId: { type: "integer", description: "El ID del contacto (si está disponible)" },
+                                subject: { type: "string", description: "Título breve del problema (ej: Fallo técnico en portal)" },
+                                message: { type: "string", description: "Resumen ejecutivo y detallado de lo que el cliente solicita, redactado de forma clara para el equipo de soporte." },
+                                priority: { type: "integer", description: "Prioridad del ticket (1: Baja, 2: Media, 3: Alta)" }
+                            },
+                            required: ["customerId", "subject", "message"]
+                        }
+                    },
+                    {
+                        name: "createContact",
+                        description: "Crea un nuevo contacto asociado a un cliente/empresa existente.",
+                        parameters: {
+                            type: "object",
+                            properties: {
+                                customerId: { type: "integer", description: "El ID de la empresa (userid)" },
+                                firstname: { type: "string", description: "Nombre del contacto" },
+                                lastname: { type: "string", description: "Apellido del contacto" },
+                                email: { type: "string", description: "Correo electrónico" },
+                                phone: { type: "string", description: "Teléfono de WhatsApp" }
+                            },
+                            required: ["customerId", "firstname", "lastname", "email"]
                         }
                     }
                 ]
@@ -119,11 +182,11 @@ Tu objetivo es:
             history: [
                 {
                     role: "user",
-                    parts: [{ text: "Eres un asistente virtual corporativo inteligente. Tienes acceso al CRM para identificar clientes por su teléfono y consultar facturas, proyectos y soporte. Usa '---' y '|' para dar formato. Sé amable y profesional." }],
+                    parts: [{ text: "Hola. Necesito que seas mi asistente. Recuerda identificarme siempre, usar emojis en cada respuesta y si no puedes ayudarme con algo técnico, crea un ticket de soporte resumiendo mi caso. ¿Entendido? 🚀" }],
                 },
                 {
                     role: "model",
-                    parts: [{ text: "Entendido. Soy el asistente corporativo. Puedo identificar clientes por su número y formatear datos con separadores horizontales y verticales. Estoy listo para consultar facturas, proyectos y soporte, utilizando emojis para mejorar la experiencia." }],
+                    parts: [{ text: "¡Entendido perfectamente! 🫡 Estoy listo para asistirte. Utilizaré emojis en todas mis respuestas para que la comunicación sea dinámica. 🚀 Primero te identificaré por tu teléfono, correo o NIT, y si surge algo que no pueda resolver directamente, crearé un ticket de soporte detallado por ti. ✅ ¿En qué puedo ayudarte hoy? ✨" }],
                 },
             ],
         });

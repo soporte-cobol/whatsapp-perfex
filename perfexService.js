@@ -24,6 +24,32 @@ class PerfexService {
         }
     }
 
+    async getCustomerByEmail(email) {
+        try {
+            const response = await axios.get(`${this.baseUrl}/perfex_bridge.php`, {
+                headers: this.headers,
+                params: { action: 'get_customer_by_email', email: email }
+            });
+            return response.data;
+        } catch (error) {
+            console.error('Error al identificar cliente por email:', error.message);
+            throw error;
+        }
+    }
+
+    async getCustomerByVat(vat) {
+        try {
+            const response = await axios.get(`${this.baseUrl}/perfex_bridge.php`, {
+                headers: this.headers,
+                params: { action: 'get_customer_by_vat', vat: vat }
+            });
+            return response.data;
+        } catch (error) {
+            console.error('Error al identificar cliente por VAT/NIT:', error.message);
+            throw error;
+        }
+    }
+
     async getInvoices(customerId) {
         try {
             const response = await axios.get(`${this.baseUrl}/perfex_bridge.php`, { 
@@ -85,6 +111,32 @@ class PerfexService {
             return response.data;
         } catch (error) {
             console.error('Error al consultar propuestas en Perfex:', error.message);
+            throw error;
+        }
+    }
+
+    async createTicket(ticketData) {
+        try {
+            const response = await axios.post(`${this.baseUrl}/perfex_bridge.php?action=create_ticket`, 
+                ticketData, 
+                { headers: this.headers }
+            );
+            return response.data;
+        } catch (error) {
+            console.error('Error al crear ticket en Perfex:', error.message);
+            throw error;
+        }
+    }
+
+    async createContact(contactData) {
+        try {
+            const response = await axios.post(`${this.baseUrl}/perfex_bridge.php?action=create_contact`, 
+                contactData, 
+                { headers: this.headers }
+            );
+            return response.data;
+        } catch (error) {
+            console.error('Error al crear contacto en Perfex:', error.message);
             throw error;
         }
     }
