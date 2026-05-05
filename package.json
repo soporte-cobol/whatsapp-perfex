@@ -1,0 +1,30 @@
+{
+  "name": "crm-ai-connector",
+  "version": "1.0.0",
+  "description": "Webhook service to connect CRM data with Gemini AI via Cobol WhatsApp platform.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "keywords": [
+    "crm",
+    "ai",
+    "gemini",
+    "whatsapp",
+    "webhook",
+    "nodejs"
+  ],
+  "author": "Your Name or Company Name",
+  "license": "MIT",
+  "dependencies": {
+    "@google/generative-ai": "^0.11.0",
+    "axios": "^1.6.8",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "form-data": "^4.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}
