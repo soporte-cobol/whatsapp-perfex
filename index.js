@@ -17,6 +17,21 @@ const whatsapp = new WhatsAppService(
     process.env.WHATSAPP_ACCOUNT_ID
 );
 
+/**
+ * Health Check Endpoint
+ * Útil para monitoreo y para validar que el servicio está arriba.
+ */
+app.get('/health', async (req, res) => {
+    res.json({ 
+        status: 'online', 
+        timestamp: new Date().toISOString(),
+        config: {
+            perfex_url: !!process.env.PERFEX_BASE_URL,
+            whatsapp_ready: !!process.env.WHATSAPP_API_SECRET
+        }
+    });
+});
+
 // Middleware de seguridad para los endpoints de Cobol
 const authenticateWebhook = (req, res, next) => {
     const apiKey = req.headers['x-api-key'];
@@ -213,8 +228,8 @@ app.post('/ai/get-proposals', authenticateWebhook, async (req, res) => {
 
 // Manejador de errores global
 app.use((err, req, res, next) => {
-    console.error(err.stack);
-    res.status(500).send('Algo salió mal en el servidor de IA');
+    console.error(`❌ Error en ${req.method} ${req.path}:`, err.message);
+    res.status(500).json({ error: 'Error interno en el servidor de IA', details: err.message });
 });
 
 const PORT = process.env.PORT || 3000;

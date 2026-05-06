@@ -1,4 +1,10 @@
+# Dependencias
 node_modules/
+
+# Configuración sensible
 .env
+
+# Logs y temporales
 *.log
+npm-debug.log*
 .DS_Store

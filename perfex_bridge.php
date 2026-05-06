@@ -10,20 +10,19 @@ require_once('app-config.php');
 // Seguridad: Token para que solo tu bot pueda consultar
 $secret_key = "TU_TOKEN_DE_SEGURIDAD_AQUI"; // <--- Debe coincidir con PERFEX_API_TOKEN en el .env
 
-// Seguridad Extra: Restricción por IP (Altamente recomendado)
-// Descomenta las líneas de abajo y pon la IP de tu servidor Node.js
-/*
-$allowed_ip = '123.123.123.123'; // Reemplaza con la IP real de tu servidor Node
-if ($_SERVER['REMOTE_ADDR'] !== $allowed_ip) {
-    http_response_code(403);
-    die(json_encode(['error' => 'Acceso denegado: IP no autorizada']));
-}
-*/
+// Seguridad Extra: Es altamente recomendable validar el origen.
+// Si conoces la IP de tu servidor Node, descomenta las siguientes líneas:
+// $allowed_ips = ['127.0.0.1', 'IP_DE_TU_SERVIDOR_NODE']; 
+// if (!in_array($_SERVER['REMOTE_ADDR'], $allowed_ips)) {
+//     http_response_code(403);
+//     exit(json_encode(['error' => 'IP no autorizada']));
+// }
 
 header('Content-Type: application/json');
 
-$headers = getallheaders();
-if (!isset($headers['Authorization']) || $headers['Authorization'] !== $secret_key) {
+// Compatibilidad mejorada para obtener el Token de Autorización
+$auth_header = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
+if (empty($auth_header) || $auth_header !== $secret_key) {
     http_response_code(401);
     echo json_encode(['error' => 'No autorizado']);
     exit;
@@ -36,6 +35,8 @@ if ($mysqli->connect_error) {
 }
 
 $action = $_GET['action'] ?? '';
+// Sanitización básica de inputs de consulta
+$action = filter_var($action, FILTER_SANITIZE_STRING);
 $customer_id = $_GET['customer_id'] ?? '';
 $email = $_GET['email'] ?? '';
 $phone = $_GET['phone'] ?? '';
@@ -142,6 +143,11 @@ switch ($action) {
 
     case 'create_ticket':
         $data = json_decode(file_get_contents('php://input'), true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            http_response_code(400);
+            echo json_encode(['error' => 'JSON inválido']);
+            exit;
+        }
         $subject = $data['subject'] ?? 'Ticket desde WhatsApp';
         $message = $data['message'] ?? '';
         $userid = $data['customerId'] ?? 0;
@@ -154,8 +160,7 @@ switch ($action) {
         
         if ($stmt->execute()) {
             $ticketid = $stmt->insert_id;
-            // SQL integridad: OK. bind_param count: 5. Placeholders: 5.
-            // La notificación por mail la maneja el CRM automáticamente
+            // SQL integridad: OK. bind_param count: 5. Placeholders: 5. 
             $response = ['success' => true, 'ticketid' => $ticketid];
         } else {
             $response = ['error' => 'Error al crear el ticket'];
