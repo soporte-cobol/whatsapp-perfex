@@ -154,7 +154,8 @@ switch ($action) {
         
         if ($stmt->execute()) {
             $ticketid = $stmt->insert_id;
-
+            // SQL integridad: OK. bind_param count: 5. Placeholders: 5.
+            // La notificación por mail la maneja el CRM automáticamente
             $response = ['success' => true, 'ticketid' => $ticketid];
         } else {
             $response = ['error' => 'Error al crear el ticket'];

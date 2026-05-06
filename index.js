@@ -93,7 +93,7 @@ app.post('/ai/identify-by-vat', authenticateWebhook, async (req, res) => {
  * Endpoint para crear contacto
  */
 app.post('/ai/create-contact', authenticateWebhook, async (req, res) => {
-    const { email } = req.body;
+    const { email, customerId } = req.body;
     // Validación rigurosa de formato de email
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (email && !emailRegex.test(email)) {
