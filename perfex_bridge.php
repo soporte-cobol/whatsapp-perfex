@@ -64,6 +64,9 @@ if (empty($auth_header) || $auth_header !== $clean_secret) {
     exit;
 }
 
+// Activar reporte de errores para depuración
+mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+
 $mysqli = new mysqli(APP_DB_HOSTNAME, APP_DB_USERNAME, APP_DB_PASSWORD, APP_DB_NAME);
 
 if ($mysqli->connect_error) {
@@ -165,35 +168,35 @@ switch ($action) {
         foreach ($rows as &$row) {
             $row['view_url'] = "https://portal.gmgroup.com.co/invoice/" . $row['id'] . "/" . $row['hash'];
         }
-        $response = is_array($rows) ? $rows : [];
+        $response = is_array($rows) ? $rows : []; // Aseguramos que siempre sea un array
         break;
 
     case 'get_projects':
         $stmt = $mysqli->prepare("SELECT id, name, start_date, deadline, status FROM tblprojects WHERE clientid = ?");
         $stmt->bind_param("i", $customer_id);
         $stmt->execute();
-        $response = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $response = is_array($stmt->get_result()) ? $stmt->get_result()->fetch_all(MYSQLI_ASSOC) : [];
         break;
 
     case 'get_tickets':
         $stmt = $mysqli->prepare("SELECT ticketid, subject, message, status, date FROM tbltickets WHERE email = ?");
         $stmt->bind_param("s", $email);
         $stmt->execute();
-        $response = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $response = is_array($stmt->get_result()) ? $stmt->get_result()->fetch_all(MYSQLI_ASSOC) : [];
         break;
 
     case 'get_estimates':
         $stmt = $mysqli->prepare("SELECT id, number, total, date, expirydate, status FROM tblestimates WHERE clientid = ?");
         $stmt->bind_param("i", $customer_id);
         $stmt->execute();
-        $response = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $response = is_array($stmt->get_result()) ? $stmt->get_result()->fetch_all(MYSQLI_ASSOC) : [];
         break;
 
     case 'get_proposals':
         $stmt = $mysqli->prepare("SELECT id, subject, total, date, open_till, status FROM tblproposals WHERE rel_id = ? AND rel_type = 'customer'");
         $stmt->bind_param("i", $customer_id);
         $stmt->execute();
-        $response = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $response = is_array($stmt->get_result()) ? $stmt->get_result()->fetch_all(MYSQLI_ASSOC) : [];
         break;
 
     case 'create_ticket':

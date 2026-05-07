@@ -83,7 +83,7 @@ const authenticateWebhook = (req, res, next) => {
     logger.error(debugMsg, { path: req.path, ip: req.ip });
     
     // Devolvemos 200 con error interno para evitar que Gemini rompa por "Empty Content"
-    return res.status(200).json({ error: true, response: 'Error de autenticación: Las credenciales del webhook no coinciden.' });
+    return res.status(200).json({ status: "error", message: 'Error de autenticación: Las credenciales del webhook no coinciden.' });
 };
 
 /**
@@ -148,27 +148,32 @@ async function handlePluginRequest(req, res) {
                         if (keywordsProyecto.some(k => lowerMsg.includes(k))) {
                             const projects = await perfex.getProjects(customer.customerId);
                             const projectsArray = Array.isArray(projects) ? projects : [];
+                            
+                            fullResponse += `\n*🏗️ PROYECTOS ACTIVOS:*\n`;
                             if (projectsArray.length > 0) {
-                                fullResponse += `\n*🏗️ PROYECTOS ACTIVOS:*\n` +
-                                    projectsArray.map(p => `• ${p.name} (Estado: ${p.status})`).join('\n');
+                                fullResponse += projectsArray.map(p => `• ${p.name} (Estado: ${p.status})`).join('\n');
                             } else {
-                                fullResponse += `\n*Proyectos:* No tienes proyectos asignados actualmente.`;
+                                fullResponse += `No tienes proyectos asignados actualmente.`;
                             }
+                            
                         }
 
                         await whatsapp.sendText(from, fullResponse);
                         
                         // Devolvemos una respuesta simple a la plataforma para que Gemini no se rompa
-                        return res.json({ status: "success", response: "He enviado la información de facturas/proyectos directamente al chat del cliente." });
+                        const successMsg = "He enviado la información de facturas/proyectos directamente al chat del cliente.";
+                        return res.json({ status: "success", message: successMsg }); // No 'response' ni 'output' para evitar que Gemini lo procese
                     }
-                    return res.json({ status: "success", response: "No encontré tu número en nuestro CRM. Por favor, indícame tu correo para buscarte." });
+                    const notFoundMsg = "No encontré tu número en nuestro CRM. Por favor, indícame tu correo para buscarte.";
+                    return res.json({ status: "success", message: notFoundMsg }); // No 'response' ni 'output'
                 }
                 // Si no es una pregunta de factura, simplemente acusamos recibo como texto
                 // Retornamos un campo 'response' claro para que el motor de IA tenga contenido
-                return res.json({ status: "success", response: "Mensaje recibido. ¿Deseas consultar algo sobre tus facturas o proyectos?" });
+                const welcomeMsg = "Mensaje recibido. ¿Deseas consultar algo sobre tus facturas o proyectos?";
+                return res.json({ status: "success", message: welcomeMsg }); // No 'response' ni 'output'
             }
             
-            return res.json({ status: "success", response: "Heartbeat processed" });
+            return res.json({ status: "success", message: "Heartbeat processed" }); // No 'response' ni 'output'
         }
 
         logger.info(`🤖 IA llamando a función: ${action}`, { args });
@@ -220,10 +225,11 @@ async function handlePluginRequest(req, res) {
                         await whatsapp.sendText(adminPhone, `🚨 *TICKET URGENTE*\n\n*Asunto:* ${args.subject || 'Sin asunto'}\n*Cliente ID:* ${args.customerId}\n\nRevisar CRM. 🚀`).catch(e => logger.error(`Error alerta admin: ${e.message}`));
                     }
                 }
-                return res.json(ticket);
+                const ticketMsg = ticket.success ? `Ticket #${ticket.ticketid} creado exitosamente.` : (ticket.error || "Error al crear el ticket.");
+                return res.json({ ...ticket, response: ticketMsg, message: ticketMsg, output: ticketMsg });
             default:
                 logger.warn(`⚠️ Función no reconocida: ${action}`);
-                return res.status(200).json({ error: true, response: `La función ${action} no está implementada.` });
+                return res.status(200).json({ error: true, response: `La función ${action} no está implementada.`, message: `La función ${action} no está implementada.`, output: `La función ${action} no está implementada.` });
         }
     } catch (error) {
         logger.error(`❌ Fallo crítico en Dispatcher: ${error.message}`, { stack: error.stack });
