@@ -1,9 +1,10 @@
 require('dotenv').config();
 const express = require('express');
+const axios = require('axios');
 const PerfexService = require('./perfexService');
 const WhatsAppService = require('./whatsappService');
 const GeminiService = require('./geminiService');
-const aiConfig = require('./aiConfig'); // <--- Importamos los prompts modulares
+const aiConfig = require('./aiConfig');
 
 const app = express();
 app.use(express.json());
@@ -17,7 +18,7 @@ app.use((req, res, next) => {
 
 const perfex = new PerfexService(process.env.PERFEX_BASE_URL, process.env.PERFEX_API_TOKEN);
 const whatsapp = new WhatsAppService(process.env.WHATSAPP_API_SECRET, process.env.WHATSAPP_ACCOUNT_ID);
-const gemini = new GeminiService(process.env.GEMINI_API_KEY, "gemini-pro");
+const gemini = new GeminiService(process.env.GEMINI_API_KEY, "gemini-1.5-flash");
 
 app.post('/ai/plugin', async (req, res) => {
     try {
@@ -34,31 +35,28 @@ app.post('/ai/plugin', async (req, res) => {
 
         let customer = { found: false };
 
-        // 1. DETECTOR DE EMAIL
+        // Buscador por Email
         const emailMatch = msg.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
         if (emailMatch) {
             console.log(`📧 Buscando por EMAIL: ${emailMatch[0]}`);
             customer = await perfex.getCustomerByEmail(emailMatch[0]).catch(() => ({ found: false }));
         }
 
-        // 2. DETECTOR DE NIT
+        // Buscador por NIT
         const nitMatch = msg.match(/\d{9}-\d|\d{9}/);
         if (!customer.found && nitMatch) {
             console.log(`🆔 Buscando por NIT: ${nitMatch[0]}`);
             customer = await perfex.getCustomerByVat(nitMatch[0]).catch(() => ({ found: false }));
         }
 
-        // 3. BUSCADOR POR TELÉFONO (Si falla lo anterior)
+        // Buscador por Teléfono
         if (!customer.found) {
             console.log(`🔍 Buscando por TELÉFONO: ${cleanFrom}`);
             customer = await perfex.getCustomerByPhone(cleanFrom).catch(() => ({ found: false }));
-            
             if (!customer.found && cleanFrom.length > 10) {
                 customer = await perfex.getCustomerByPhone(cleanFrom.slice(-10)).catch(() => ({ found: false }));
             }
         }
-
-        console.log(`📊 CRM RESPONSE:`, JSON.stringify(customer));
 
         if (customer.found) {
             console.log(`✅ IDENTIFICADO: ${customer.firstname}`);
@@ -68,7 +66,6 @@ app.post('/ai/plugin', async (req, res) => {
                 perfex.getProjects(customer.customerId, 3).catch(() => [])
             ]);
 
-            // Construir respuesta rígida
             const pending = invoices.filter(i => i.status != 2 && i.status != 4 && i.status != 5);
             let rigidMsg = `*RESUMEN DE CUENTA:*\n`;
             if (pending.length > 0) {
@@ -77,33 +74,28 @@ app.post('/ai/plugin', async (req, res) => {
                 rigidMsg += `\n✅ Sin deudas pendientes.`;
             }
 
-            // Generar respuesta con Gemini usando el nuevo sistema de Prompts
-            let aiMsg = `Hola ${customer.firstname}! Soy ${aiConfig.BOT_NAME}.`;
+            let aiMsg = null;
             if (gemini.isReady()) {
-                const fullPrompt = `
-                ${aiConfig.PRE_PROMPT}
-                
-                DATOS DEL CLIENTE EN CRM:
-                - Nombre: ${customer.firstname} ${customer.lastname || ''}
-                - Empresa: ${customer.company || 'N/A'}
-                - Información de Cuenta: ${rigidMsg}
-                
-                PREGUNTA DEL CLIENTE: "${msg}"
-                
-                ${aiConfig.POST_PROMPT}
-                `;
-                aiMsg = await gemini.generateText(fullPrompt).catch(() => aiMsg);
+                const fullPrompt = `${aiConfig.PRE_PROMPT}\n\nCliente: ${customer.firstname}. Contexto: ${rigidMsg}\n\nPregunta: "${msg}"\n\n${aiConfig.POST_PROMPT}`;
+                aiMsg = await gemini.generateText(fullPrompt);
             }
 
-            console.log(`📤 Enviando a WhatsApp...`);
-            await whatsapp.sendText(cleanFrom, aiMsg).catch(() => {});
+            if (aiMsg) {
+                console.log("📤 Enviando respuesta de IA...");
+                await whatsapp.sendText(cleanFrom, aiMsg).catch(() => {});
+            } else {
+                console.log("📤 Enviando solo respuesta rígida (IA falló)...");
+                const fallbackSalute = `¡Hola ${customer.firstname}! Soy ${aiConfig.BOT_NAME}. Hubo un problema con mi cerebro de IA, pero aquí tienes tus datos:`;
+                await whatsapp.sendText(cleanFrom, fallbackSalute).catch(() => {});
+            }
+            
             await whatsapp.sendText(cleanFrom, rigidMsg).catch(() => {});
 
         } else {
             console.log(`⚠️ NO ENCONTRADO.`);
             let aiFallback = aiConfig.FALLBACK_PROMPT;
             if (gemini.isReady()) {
-                aiFallback = await gemini.generateText(`Contexto: ${aiConfig.PRE_PROMPT}. El cliente dice "${msg}" pero no lo encontramos. Pídele su correo o NIT amablemente como Gloria.`).catch(() => aiFallback);
+                aiFallback = await gemini.generateText(`Dile al cliente que no lo encuentras como ${aiConfig.BOT_NAME}.`).catch(() => aiFallback);
             }
             await whatsapp.sendText(cleanFrom, aiFallback).catch(() => {});
         }
@@ -119,6 +111,16 @@ app.post('/ai/plugin', async (req, res) => {
 app.post('/', (req, res) => res.redirect(307, '/ai/plugin'));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`\n🚀 SERVIDOR MODULAR LISTO EN PUERTO ${PORT}`);
+app.listen(PORT, async () => {
+    console.log(`\n🚀 SERVIDOR ONLINE EN PUERTO ${PORT}`);
+    
+    // --- AUTO-DIAGNÓSTICO DE MODELOS ---
+    try {
+        const key = process.env.GEMINI_API_KEY;
+        const resModels = await axios.get(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
+        console.log('✅ MODELOS DISPONIBLES PARA TU LLAVE:');
+        resModels.data.models.slice(0, 5).forEach(m => console.log(`   - ${m.name}`));
+    } catch (e) {
+        console.log('❌ Error al listar modelos:', e.message);
+    }
 });
