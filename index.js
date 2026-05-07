@@ -128,34 +128,29 @@ async function handlePluginRequest(req, res) {
                 if (keywordsFactura.some(k => lowerMsg.includes(k)) || keywordsProyecto.some(k => lowerMsg.includes(k))) {
                     const customer = await perfex.getCustomerByPhone(from);
                     if (customer.found) {
-                        let fullResponse = `Hola ${customer.firstname || 'cliente'}! 🤖 He consultado directamente en el sistema:\n\n`;
+                        // Consulta Rígida: Ejecutamos facturas y proyectos en paralelo para ganar velocidad
+                        const [invoices, projects] = await Promise.all([
+                            keywordsFactura.some(k => lowerMsg.includes(k)) ? perfex.getInvoices(customer.customerId) : Promise.resolve([]),
+                            keywordsProyecto.some(k => lowerMsg.includes(k)) ? perfex.getProjects(customer.customerId) : Promise.resolve([])
+                        ]);
+
+                        let fullResponse = `Hola ${customer.firstname || 'cliente'}! 🤖\n\n`;
                         
-                        // Lógica de Facturas
-                        if (keywordsFactura.some(k => lowerMsg.includes(k))) {
-                            const invoices = await perfex.getInvoices(customer.customerId);
-                            const invoicesArray = Array.isArray(invoices) ? invoices : [];
-                            const pending = invoicesArray.filter(inv => ['Por pagar', 'Vencida', 'Parcialmente pagada'].includes(inv.status_name));
-                            
+                        if (Array.isArray(invoices) && invoices.length > 0) {
+                            const pending = invoices.filter(inv => ['Por pagar', 'Vencida', 'Parcialmente pagada'].includes(inv.status_name));
                             if (pending.length > 0) {
                                 fullResponse += `*📄 FACTURAS PENDIENTES:*\n` + 
-                                    pending.map(inv => `• ${inv.number}: $${inv.total} (${inv.status_name})\n  🔗 Ver: ${inv.view_url}`).join('\n\n');
-                            } else {
-                                fullResponse += `*Facturas:* No registras pagos pendientes actualmente. ✅\n`;
+                                    pending.map(inv => `• ${inv.number}: $${inv.total} (${inv.status_name})\n  🔗 Ver: ${inv.view_url}`).join('\n\n') + `\n\n`;
+                            } else if (keywordsFactura.some(k => lowerMsg.includes(k))) {
+                                fullResponse += `*Facturas:* No registras pagos pendientes. ✅\n\n`;
                             }
                         }
 
-                        // Lógica de Proyectos
-                        if (keywordsProyecto.some(k => lowerMsg.includes(k))) {
-                            const projects = await perfex.getProjects(customer.customerId);
-                            const projectsArray = Array.isArray(projects) ? projects : [];
-                            
-                            fullResponse += `\n*🏗️ PROYECTOS ACTIVOS:*\n`;
-                            if (projectsArray.length > 0) {
-                                fullResponse += projectsArray.map(p => `• ${p.name} (Estado: ${p.status})`).join('\n');
-                            } else {
-                                fullResponse += `No tienes proyectos asignados actualmente.`;
-                            }
-                            
+                        if (Array.isArray(projects) && projects.length > 0) {
+                            fullResponse += `*🏗️ PROYECTOS ACTIVOS:*\n` +
+                                projects.map(p => `• ${p.name} (Estado: ${p.status})`).join('\n') + `\n`;
+                        } else if (keywordsProyecto.some(k => lowerMsg.includes(k))) {
+                            fullResponse += `*Proyectos:* No tienes proyectos asignados actualmente.\n`;
                         }
 
                         await whatsapp.sendText(from, fullResponse);
@@ -181,27 +176,32 @@ async function handlePluginRequest(req, res) {
         switch (action) {
             case 'identifyCustomer':
                 const customer = await perfex.getCustomerByPhone(args.phone);
-                if (!customer.found) logger.info(`🔍 Cliente no encontrado por teléfono: ${args.phone}`);
-                return res.json(customer);
+                const idMsg = customer.found ? `Identificado: ${customer.firstname}` : "No encontrado";
+                return res.json({ ...customer, response: idMsg, message: idMsg, output: idMsg });
             case 'identifyByEmail':
                 const customerByEmail = await perfex.getCustomerByEmail(args.email);
-                if (!customerByEmail.found) logger.info(`🔍 Cliente no encontrado por email: ${args.email}`);
-                return res.json(customerByEmail);
+                const emailMsg = customerByEmail.found ? `Identificado: ${customerByEmail.firstname}` : "Email no encontrado";
+                return res.json({ ...customerByEmail, response: emailMsg, message: emailMsg, output: emailMsg });
             case 'identifyByVat':
-                return res.json(await perfex.getCustomerByVat(args.vat || args.tax_number));
+                const customerVat = await perfex.getCustomerByVat(args.vat || args.tax_number);
+                const vatMsg = customerVat.found ? `Identificado: ${customerVat.company}` : "NIT no encontrado";
+                return res.json({ ...customerVat, response: vatMsg, message: vatMsg, output: vatMsg });
             case 'getInvoices':
                 const cidInv = parseInt(args.customerId || args.id || args.customer_id || (args.customer && args.customer.customerId));
-                if (!cidInv) return res.status(200).json({ error: true, response: "Falta ID de cliente" });
+                if (!cidInv) return res.status(200).json({ error: true, response: "Falta ID de cliente", message: "Falta ID de cliente" });
                 const invoices = await perfex.getInvoices(cidInv);
-                return res.json({ status: "success", response: `Encontradas ${invoices.length} facturas.`, invoices });
+                const invResp = `Encontradas ${Array.isArray(invoices) ? invoices.length : 0} facturas.`;
+                return res.json({ status: "success", response: invResp, message: invResp, output: invResp, invoices });
             case 'getProjects':
                 const cidProj = parseInt(args.customerId || args.id || args.customer_id);
                 const projects = cidProj ? await perfex.getProjects(cidProj) : [];
-                return res.json({ status: "success", response: `Encontrados ${projects.length} proyectos.`, projects });
+                const projResp = `Encontrados ${projects.length} proyectos.`;
+                return res.json({ status: "success", response: projResp, message: projResp, output: projResp, projects });
             case 'getEstimates':
                 const cidEst = parseInt(args.customerId || args.id || args.customer_id);
                 const estimates = cidEst ? await perfex.getEstimates(cidEst) : [];
-                return res.json({ status: "success", response: `Encontrados ${estimates.length} presupuestos.`, estimates });
+                const estResp = `Encontrados ${estimates.length} presupuestos.`;
+                return res.json({ status: "success", response: estResp, message: estResp, output: estResp, estimates });
             case 'getProposals':
                 const cidProp = parseInt(args.customerId || args.id || args.customer_id);
                 const proposals = cidProp ? await perfex.getProposals(cidProp) : [];
@@ -219,7 +219,8 @@ async function handlePluginRequest(req, res) {
             case 'get_time':
                 const timezone = args.timezone || "America/Bogota";
                 const time = new Date().toLocaleString("en-US", { timeZone: timezone, hour12: true, hour: 'numeric', minute: 'numeric' });
-                return res.json({ current_time: time, timezone });
+                const timeMsg = `Hora actual: ${time}`;
+                return res.json({ current_time: time, timezone, response: timeMsg, message: timeMsg, output: timeMsg });
             case 'createTicket':
                 const ticket = await perfex.createTicket(args);
                 if (ticket.success && parseInt(args.priority) === 3) {
@@ -288,10 +289,17 @@ setTimeout(() => {
     // Manejo de cierre grácil para liberar el puerto correctamente
     const shutdown = () => {
         logger.info('🛑 Cerrando servidor...');
-        server.close(() => {
-            logger.info('👋 Servidor fuera de línea y puerto liberado.');
-            process.exit(0);
-        });
+        try {
+            server.close(() => {
+                logger.info('👋 Servidor fuera de línea y puerto liberado.');
+                process.exit(0); // Exit cleanly after server closes
+            });
+            // Force exit after a short delay if server.close() hangs
+            setTimeout(() => { process.exit(0); }, 1000); 
+        } catch (err) {
+            logger.error('❌ Error durante el cierre del servidor:', { message: err.message, stack: err.stack });
+            process.exit(1); // Exit with error
+        }
     };
 
     process.on('SIGTERM', shutdown);
