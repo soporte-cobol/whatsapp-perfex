@@ -64,13 +64,17 @@ app.get('/health', async (req, res) => {
 // Middleware de seguridad para los endpoints de Cobol
 const authenticateWebhook = (req, res, next) => {
     const apiKey = req.headers['x-api-key'] || req.headers['X-API-KEY'];
-    const bodySecret = req.body.secret;
+    const bodySecret = req.body.secret || req.body.password;
 
-    if ((apiKey && apiKey === process.env.WEBHOOK_API_KEY) || (bodySecret && bodySecret === process.env.WHATSAPP_API_SECRET)) {
+    const isApiKeyValid = apiKey && apiKey === process.env.WEBHOOK_API_KEY;
+    const isBodySecretValid = bodySecret && bodySecret === process.env.WHATSAPP_API_SECRET;
+
+    if (isApiKeyValid || isBodySecretValid) {
         return next();
     }
 
-    logger.warn(`🚫 Intento de acceso no autorizado desde: ${req.ip}`, { headers: req.headers, body: req.body });
+    // Log detallado para identificar qué secreto está enviando Cobol realmente
+    logger.warn(`🚫 Acceso denegado. Recibido Secret: ${bodySecret ? bodySecret.substring(0, 6) + '...' : 'N/A'}`, { ip: req.ip });
     return res.status(401).json({ error: 'No autorizado.' });
 };
 
@@ -80,12 +84,12 @@ const authenticateWebhook = (req, res, next) => {
  */
 app.post('/ai/plugin', authenticateWebhook, async (req, res) => {
     // Log crítico
-    logger.info('📥 Petición entrante:', { body: req.body });
+    logger.info('📥 Petición de Cobol recibida');
 
     // 1. Detectar si es una notificación de evento de WhatsApp (Webhook URL)
     if (req.body.message && req.body.from) {
         logger.info(`💬 Evento de mensaje recibido de ${req.body.from}`);
-        return res.json({ status: 'ok', type: 'event_received' });
+        return res.status(200).json({ status: 'ok', type: 'event_received' });
     }
 
     // Intentamos obtener el nombre de la función y argumentos de varias formas comunes
@@ -94,7 +98,8 @@ app.post('/ai/plugin', authenticateWebhook, async (req, res) => {
 
     // Si no hay acción ni es un mensaje, probablemente sea un latido (heartbeat) o estructura desconocida
     if (!action) {
-        return res.json({ status: 'ok', message: 'No action detected' });
+        logger.info('ℹ️ Petición sin acción (posible heartbeat)');
+        return res.status(200).json({ status: 'ok', message: 'No action detected' });
     }
 
     // Si args llega como un string JSON, lo parseamos
