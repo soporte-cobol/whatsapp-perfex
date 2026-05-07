@@ -173,7 +173,13 @@ async function handlePluginRequest(req, res) {
                     if (aiAnswer) await whatsapp.sendText(cleanFrom, aiAnswer).catch(() => {});
                     await whatsapp.sendText(cleanFrom, rigidAnswer).catch(() => {});
 
-                    return sendCobolJson(res, { status: "success", response: "OK", final: true, stop: true });
+                    // Retornamos un JSON que detenga cualquier otro procesamiento en el panel
+                    return sendCobolJson(res, { 
+                        status: "success", 
+                        response: "", // Dejamos vacío para que el panel no intente procesar este texto
+                        final: true, 
+                        stop: true 
+                    });
                 } else {
                     let fallback = "No encuentro tu número. ¿Me das tu correo electrónico?";
                     if (gemini.isReady()) {
