@@ -90,58 +90,52 @@ const authenticateWebhook = (req, res, next) => {
  * Lógica compartida del Dispatcher (Maneja Plugins y Webhooks)
  */
 async function handlePluginRequest(req, res) {
-    // 1. Detectar si es una LLAMADA DE FUNCIÓN (Plugin/Tool Call) primero
-    let action = req.body.action || req.body.function || req.body.name || req.body.method || 
-                 req.body.command || req.body.tool || req.body.plugin ||
-                 (req.body.data && (req.body.data.action || req.body.data.function || req.body.data.name)) ||
-                 (req.body.calls && req.body.calls[0]?.function?.name);
-
-    let args = req.body.arguments || req.body.args || req.body.params || req.body.data ||
-               req.body.input ||
-               (req.body.calls && req.body.calls[0]?.function?.arguments) || req.body;
-
-    // 2. Si NO hay una acción detectable, verificamos si es una notificación de mensaje o heartbeat
-    if (!action) {
-        const msg = req.body.message || (req.body.data && req.body.data.message);
-        const from = req.body.from || (req.body.data && (req.body.data.phone || req.body.data.wid));
-
-        if (msg && from) {
-            logger.info(`💬 Evento de mensaje recibido de ${from}: ${msg.substring(0, 20)}...`);
-            
-            // Si el mensaje del usuario contiene palabras clave de facturas, intentamos identificar y buscar
-            const lowerMsg = msg.toLowerCase();
-            if (lowerMsg.includes('factura') || lowerMsg.includes('debo') || lowerMsg.includes('pendiente') || lowerMsg.includes('pagos') || lowerMsg.includes('pagar')) {
-                // Aquí tu webhook decide llamar a la herramienta.
-                // Primero, intentamos identificar al cliente por el número de WhatsApp
-                const customer = await perfex.getCustomerByPhone(from);
-                if (customer.found) {
-                    const invoices = await perfex.getInvoices(customer.customerId);
-                    // Devolvemos la respuesta de las facturas para que Gemini la procese
-                    return res.status(200).json({ invoices: invoices, customer: customer });
-                }
-                return res.status(200).json({ text: "No pude identificarte para buscar facturas. Por favor, dime tu correo electrónico." });
-            }
-            // Si no es una pregunta de factura, simplemente acusamos recibo como texto
-            return res.status(200).json({ text: `Mensaje recibido: "${msg.substring(0, 50)}..."` });
-        }
-        
-        logger.info('ℹ️ Heartbeat o petición sin acción detectable. Respondiendo con placeholder.');
-        return res.status(200).json({ text: 'Heartbeat processed' });
-    }
-
-    // Log de ejecución de Plugin
-    logger.info(`🤖 IA llamando a función (Raw): ${action}`, { args });
-
-    // Parseo de argumentos si vienen como string JSON
-    if (typeof args === 'string' && args.trim().startsWith('{')) {
-        try {
-            args = JSON.parse(args);
-        } catch (e) {
-            logger.error(`❌ Error parseando argumentos: ${e.message}`);
-        }
-    }
-
     try {
+        // 1. Detección de Acción (Tool Call)
+        let action = req.body.action || req.body.function || req.body.name || req.body.method || 
+                     req.body.command || req.body.tool || req.body.plugin ||
+                     (req.body.data && (req.body.data.action || req.body.data.function || req.body.data.name)) ||
+                     (req.body.calls && req.body.calls[0]?.function?.name);
+
+        let args = req.body.arguments || req.body.args || req.body.params || req.body.data ||
+                   req.body.input ||
+                   (req.body.calls && req.body.calls[0]?.function?.arguments) || req.body;
+
+        // Parseo de argumentos si vienen como string JSON
+        if (typeof args === 'string' && args.trim().startsWith('{')) {
+            try {
+                args = JSON.parse(args);
+            } catch (e) {
+                logger.error(`❌ Error parseando argumentos: ${e.message}`);
+            }
+        }
+
+        // 2. Si NO hay acción detectable, es un mensaje directo o heartbeat
+        if (!action) {
+            const msg = req.body.message || (req.body.data && req.body.data.message);
+            const from = req.body.from || (req.body.data && (req.body.data.phone || req.body.data.wid));
+
+            if (msg && from) {
+                logger.info(`💬 Mensaje recibido de ${from}`);
+                const lowerMsg = msg.toLowerCase();
+                const keywords = ['factura', 'debo', 'pendiente', 'pagos', 'pagar', 'saldo'];
+                
+                if (keywords.some(k => lowerMsg.includes(keywords))) {
+                    const customer = await perfex.getCustomerByPhone(from);
+                    if (customer.found) {
+                        const invoices = await perfex.getInvoices(customer.customerId);
+                        return res.json({ invoices, customer, message: "Datos recuperados del CRM" });
+                    }
+                }
+                // Respuesta segura para que Gemini no se rompa
+                return res.json({ status: "success", received: true });
+            }
+            
+            return res.json({ status: "online", info: "No action detected" });
+        }
+
+        logger.info(`🤖 IA llamando a función: ${action}`, { args });
+
         switch (action) {
             case 'identifyCustomer':
                 const customer = await perfex.getCustomerByPhone(args.phone);
@@ -152,39 +146,25 @@ async function handlePluginRequest(req, res) {
                 if (!customerByEmail.found) logger.info(`🔍 Cliente no encontrado por email: ${args.email}`);
                 return res.json(customerByEmail);
             case 'identifyByVat':
-                const resVat = await perfex.getCustomerByVat(args.vat || args.tax_number);
-                logger.info('📤 Respuesta Vat:', resVat);
-                return res.json(resVat);
+                return res.json(await perfex.getCustomerByVat(args.vat || args.tax_number));
             case 'getInvoices':
-                const cidInv = parseInt(args.customerId || args.id || args.customer_id);
-                if (!cidInv) return res.json({ error: "ID de cliente no válido o ausente para consultar facturas" });
+                const cidInv = parseInt(args.customerId || args.id || args.customer_id || (args.customer && args.customer.customerId));
+                if (!cidInv) return res.json({ error: "Falta ID de cliente" });
                 const invoices = await perfex.getInvoices(cidInv);
-                logger.info(`📤 Enviando ${invoices.length} facturas`);
                 return res.json({ invoices });
             case 'getProjects':
                 const cidProj = parseInt(args.customerId || args.id || args.customer_id);
-                if (!cidProj) return res.json({ error: "ID de cliente no válido para consultar proyectos" });
-                const projects = await perfex.getProjects(cidProj);
-                logger.info(`📤 Enviando ${projects.length} proyectos`);
-                return res.json({ projects });
+                return res.json({ projects: cidProj ? await perfex.getProjects(cidProj) : [] });
             case 'getEstimates':
                 const cidEst = parseInt(args.customerId || args.id || args.customer_id);
-                if (!cidEst) return res.json({ error: "ID de cliente no válido para consultar presupuestos" });
-                const estimates = await perfex.getEstimates(cidEst);
-                return res.json({ estimates });
+                return res.json({ estimates: cidEst ? await perfex.getEstimates(cidEst) : [] });
             case 'getProposals':
                 const cidProp = parseInt(args.customerId || args.id || args.customer_id);
-                if (!cidProp) return res.json({ error: "ID de cliente no válido para consultar propuestas" });
-                const proposals = await perfex.getProposals(cidProp);
-                return res.json({ proposals });
+                return res.json({ proposals: cidProp ? await perfex.getProposals(cidProp) : [] });
             case 'createContact':
-                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-                if (args.email && !emailRegex.test(args.email)) return res.json({ error: 'Formato de email no válido' });
                 return res.json(await perfex.createContact(args));
             case 'getSupportTickets':
-                if (!args.email) return res.json({ error: "Falta email para consultar tickets" });
-                const tickets = await perfex.getSupportTickets(args.email);
-                return res.json({ tickets });
+                return res.json({ tickets: args.email ? await perfex.getSupportTickets(args.email) : [] });
             case 'getTime':
             case 'get_time':
                 const timezone = args.timezone || "America/Bogota";
@@ -195,9 +175,7 @@ async function handlePluginRequest(req, res) {
                 if (ticket.success && parseInt(args.priority) === 3) {
                     const adminPhone = process.env.ADMIN_WHATSAPP_NUMBER; 
                     if (adminPhone) {
-                        const subject = args.subject || 'Sin asunto';
-                        const alertMsg = `🚨 *TICKET URGENTE*\n\n*Asunto:* ${subject}\n*Cliente ID:* ${args.customerId}\n\nRevisar CRM. 🚀`;
-                        await whatsapp.sendText(adminPhone, alertMsg).catch(e => logger.error(`Error alerta admin: ${e.message}`));
+                        await whatsapp.sendText(adminPhone, `🚨 *TICKET URGENTE*\n\n*Asunto:* ${args.subject || 'Sin asunto'}\n*Cliente ID:* ${args.customerId}\n\nRevisar CRM. 🚀`).catch(e => logger.error(`Error alerta admin: ${e.message}`));
                     }
                 }
                 return res.json(ticket);
@@ -206,10 +184,19 @@ async function handlePluginRequest(req, res) {
                 return res.status(200).json({ error: true, message: `La función ${action} no está implementada.` });
         }
     } catch (error) {
-        logger.error(`❌ Error ejecutando acción ${action}: ${error.message}`);
+        logger.error(`❌ Fallo crítico en Dispatcher: ${error.message}`, { stack: error.stack });
         res.status(200).json({ error: true, message: `Error CRM: ${error.message}` });
     }
 }
+
+// Manejo de errores fatales para evitar que el log se pierda
+process.on('uncaughtException', (error) => {
+    logger.error('💥 UNCAUGHT EXCEPTION:', { message: error.message, stack: error.stack });
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    logger.error('💥 UNHANDLED REJECTION:', { reason: reason?.message || reason, stack: reason?.stack });
+});
 
 /**
  * Rutas de Webhook y Plugin
