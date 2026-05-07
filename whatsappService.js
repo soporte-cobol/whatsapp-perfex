@@ -8,20 +8,19 @@ class WhatsAppService {
         this.baseUrl = 'https://uno.cobol.com.co/api';
     }
 
-    /**
-     * Envía un mensaje de texto. Si es muy largo, lo fragmenta.
-     */
     async sendText(recipient, message) {
         if (!message) return;
 
-        // Si el mensaje es muy largo, lo dividimos por párrafos o puntos
-        const MAX_LENGTH = 600; // Límite conservador para evitar recortes
+        // Bajamos el límite a 250 para asegurar que Zender no corte nada
+        const MAX_LENGTH = 250; 
+        
         if (message.length > MAX_LENGTH) {
             const chunks = this._splitMessage(message, MAX_LENGTH);
+            console.log(`📦 Fragmentando mensaje en ${chunks.length} partes...`);
             for (const chunk of chunks) {
                 await this._executeSend(recipient, chunk);
-                // Pequeña espera para que lleguen en orden
-                await new Promise(r => setTimeout(r, 1000));
+                // Espera de 1.5s para asegurar orden y evitar spam filters
+                await new Promise(r => setTimeout(r, 1500));
             }
         } else {
             return await this._executeSend(recipient, message);
@@ -43,15 +42,15 @@ class WhatsAppService {
                 timeout: 10000
             });
 
-            if (response.data && response.data.status === 200) {
-                console.log(`✅ WhatsApp enviado a ${recipient}`);
+            if (response.data && (response.data.status === 200 || response.data.status === 'success')) {
+                console.log(`✅ Parte enviada a ${recipient}`);
                 return true;
             } else {
-                console.warn(`⚠️ Error API WhatsApp:`, response.data);
+                console.warn(`⚠️ Respuesta API WhatsApp:`, response.data);
                 return false;
             }
         } catch (error) {
-            console.error(`❌ Fallo crítico WhatsApp:`, error.message);
+            console.error(`❌ Error envío WhatsApp:`, error.message);
             return false;
         }
     }
@@ -60,8 +59,9 @@ class WhatsAppService {
         const chunks = [];
         let current = text;
         while (current.length > limit) {
-            let splitAt = current.lastIndexOf('\n', limit);
-            if (splitAt === -1) splitAt = current.lastIndexOf('. ', limit);
+            // Buscamos un punto o un espacio para no cortar palabras
+            let splitAt = current.lastIndexOf('. ', limit);
+            if (splitAt === -1) splitAt = current.lastIndexOf(' ', limit);
             if (splitAt === -1) splitAt = limit;
             
             chunks.push(current.substring(0, splitAt).trim());

@@ -3,8 +3,8 @@ const axios = require('axios');
 class GeminiService {
     constructor(apiKey, model) {
         this.apiKey = String(apiKey || '').trim();
-        // Usamos el 2.5 que es el que te funcionó en los logs
-        this.model = 'gemini-2.5-flash';
+        // El 1.5-flash es el más estable y rápido para WhatsApp
+        this.model = 'gemini-1.5-flash';
         this.baseUrl = 'https://generativelanguage.googleapis.com/v1beta';
     }
 
@@ -22,7 +22,7 @@ class GeminiService {
                 contents: [{ parts: [{ text: prompt }] }],
                 generationConfig: {
                     temperature: 0.7,
-                    maxOutputTokens: 1000,
+                    maxOutputTokens: 800, // Ajustado para evitar respuestas infinitas
                 }
             };
 
@@ -39,9 +39,9 @@ class GeminiService {
             const errorBody = error.response?.data?.error?.message || error.message;
             console.error(`❌ ERROR GEMINI [${this.model}]:`, errorBody);
             
-            // Intento desesperado con el 2.5-pro si el flash falla
-            if (this.model === 'gemini-2.5-flash') {
-                this.model = 'gemini-2.5-pro';
+            // Fallback al 1.5-pro si el flash falla
+            if (this.model === 'gemini-1.5-flash') {
+                this.model = 'gemini-1.5-pro';
                 return this.generateText(prompt);
             }
             return null;
