@@ -4,9 +4,10 @@ class PerfexService {
     constructor(baseUrl, apiToken) {
         this.baseUrl = baseUrl;
         this.apiToken = apiToken;
+        // Ahora el token va en la URL base para evitar que el servidor lo borre
         this.client = axios.create({
             baseURL: `${baseUrl}/assets/perfex_bridge.php`,
-            headers: { 'Authorization': `Bearer ${apiToken}` }
+            params: { token: apiToken } 
         });
     }
 
@@ -35,20 +36,12 @@ class PerfexService {
         return Array.isArray(res.data) ? res.data : [];
     }
 
-    async getContracts(customerId, limit = 3) {
-        const res = await this.client.get('', { params: { action: 'get_contracts', customer_id: customerId, limit } });
-        return Array.isArray(res.data) ? res.data : [];
-    }
-
-    async getTickets(email, limit = 3) {
-        const res = await this.client.get('', { params: { action: 'get_tickets', email, limit } });
-        return Array.isArray(res.data) ? res.data : [];
-    }
-
     async createTicket(ticketData) {
         const res = await this.client.post('', { 
-            action: 'create_ticket', 
-            ...ticketData 
+            ...ticketData,
+            action: 'create_ticket'
+        }, {
+            params: { token: this.apiToken } // Re-aseguramos el token en POST
         });
         return res.data;
     }
