@@ -28,6 +28,16 @@ const logger = winston.createLogger({
     ]
 });
 
+/**
+ * Función auxiliar para enviar alertas de depuración al administrador
+ */
+async function sendDebug(message) {
+    const adminPhone = process.env.ADMIN_WHATSAPP_NUMBER;
+    if (adminPhone) {
+        await whatsapp.sendText(adminPhone, `🛠️ *DEBUG LOG:* ${message}`).catch(() => {});
+    }
+}
+
 const app = express();
 app.set('trust proxy', true);
 app.use(express.json());
@@ -79,7 +89,7 @@ const authenticateWebhook = (req, res, next) => {
         return next();
     }
 
-    const debugMsg = `🚫 BLOQUEADO: Credenciales incorrectas. IP: ${req.ip}. Recibido: "${bodySecret.substring(0, 8)}...". Esperado: "${expectedWebhookKey.substring(0, 8)}..."`;
+    const debugMsg = `🚫 BLOQUEADO: Credenciales incorrectas. IP: ${req.ip}. Recibido: "${bodySecret.substring(0, 4)}...". Esperado: "${expectedWebhookKey.substring(0, 4)}..."`;
     logger.error(debugMsg, { path: req.path, ip: req.ip });
     
     // Devolvemos 200 con error interno para evitar que Gemini rompa por "Empty Content"
@@ -92,7 +102,7 @@ const authenticateWebhook = (req, res, next) => {
 async function handlePluginRequest(req, res) {
     try {
         // DEBUG: Log del JSON completo que envía Cobol
-        logger.info('📥 JSON Recibido desde Cobol:', { body: req.body });
+        logger.info(`📥 JSON Recibido desde Cobol: ${JSON.stringify(req.body)}`);
 
         // 1. Detección de Acción (Tool Call)
         let action = req.body.action || req.body.function || req.body.name || req.body.method || 
@@ -116,28 +126,35 @@ async function handlePluginRequest(req, res) {
         // 2. Si NO hay acción detectable, es un mensaje directo o heartbeat
         if (!action) {
             // Intentar extraer mensaje y emisor de varias estructuras posibles
-            const msg = (req.body.data && req.body.data.message) || req.body.message || req.body.text || "";
+            const msg = (req.body.data && req.body.data.message) || req.body.message || req.body.text || req.body.body || req.body.query || req.body.body?.data?.message || "";
             const from = (req.body.data && (req.body.data.phone || req.body.data.wid)) || req.body.from;
 
             if (msg && from) {
-                const cleanFrom = String(from).split('@')[0].replace(/\D/g, '');
-                logger.info(`💬 Mensaje recibido de ${cleanFrom}: "${msg.substring(0, 40)}..."`);
+                // Limpieza profunda del número: elimina +, @s.whatsapp.net y deja solo dígitos
+                const cleanFrom = String(from).split('@')[0].replace(/\D/g, '').substring(0, 15);
+                logger.info(`💬 Mensaje recibido de ${cleanFrom}: "${msg.substring(0, 50)}..."`);
                 
                 const lowerMsg = msg.toLowerCase();
                 const keywordsFactura = ['factura', 'debo', 'pendiente', 'pagos', 'pagar', 'saldo'];
                 const keywordsProyecto = ['proyecto', 'proyectos', 'obra', 'tarea'];
                 
                 if (keywordsFactura.some(k => lowerMsg.includes(k)) || keywordsProyecto.some(k => lowerMsg.includes(k))) {
-                    const customer = await perfex.getCustomerByPhone(cleanFrom).catch(() => ({ found: false }));
+                    logger.info(`🚀 CONSULTA RÍGIDA para: ${cleanFrom}`);
+                    await sendDebug(`🚀 Procesando consulta rígida para ${cleanFrom}`);
+                    
+                    const customer = await perfex.getCustomerByPhone(cleanFrom).catch(async (err) => {
+                        await sendDebug(`❌ Error CRM buscando ${cleanFrom}: ${err.message}`);
+                        return { found: false };
+                    });
                     
                     if (customer.found) {
-                        // CONSULTA RÍGIDA: Procesamos todo sin que la IA intervenga en la lógica
+                        await sendDebug(`✅ Identificado: ${customer.firstname}. Consultando facturas/proyectos...`);
                         const [invoices, projects] = await Promise.all([
                             keywordsFactura.some(k => lowerMsg.includes(k)) ? perfex.getInvoices(customer.customerId).catch(() => []) : Promise.resolve([]),
                             keywordsProyecto.some(k => lowerMsg.includes(k)) ? perfex.getProjects(customer.customerId).catch(() => []) : Promise.resolve([])
                         ]);
 
-                        let fullResponse = `Hola ${customer.firstname || 'cliente'}! 🤖\n`;
+                        let fullResponse = `Hola ${customer.firstname}! 🤖 He consultado tu información directamente:\n`;
                         
                         if (Array.isArray(invoices) && invoices.length > 0) {
                             const pending = invoices.filter(inv => ['Por pagar', 'Vencida', 'Parcialmente pagada'].includes(inv.status_name));
@@ -145,7 +162,7 @@ async function handlePluginRequest(req, res) {
                                 fullResponse += `\n*📄 FACTURAS PENDIENTES:*\n` + 
                                     pending.map(inv => `• ${inv.number}: $${inv.total} (${inv.status_name})\n  🔗 Pagar: ${inv.view_url}`).join('\n\n') + `\n`;
                             } else {
-                                fullResponse += `\n*Facturas:* No tienes facturas pendientes de pago. ✅\n`;
+                                fullResponse += `\n✅ No tienes facturas pendientes de pago.\n`;
                             }
                         }
 
@@ -154,27 +171,30 @@ async function handlePluginRequest(req, res) {
                                 projects.map(p => `• ${p.name} (Estado: ${p.status})`).join('\n');
                         }
 
-                        if (fullResponse.length < 50) {
-                            fullResponse += "\nNo encontré información pendiente en tu cuenta actualmente.";
-                        }
+                        // Enviamos WhatsApp directamente (Consulta Rígida)
+                        await whatsapp.sendText(cleanFrom, fullResponse).catch(e => logger.error(`Error enviando WhatsApp rígido: ${e.message}`));
 
-                        // Enviamos la respuesta rígida directamente al usuario
-                        await whatsapp.sendText(cleanFrom, fullResponse);
-                        
-                        // Devolvemos respuesta corta a Cobol para que la IA no repita el mensaje
-                        const ack = "Consulta finalizada y enviada por WhatsApp.";
-                        return res.json({ status: "success", response: ack, message: ack, output: ack, final: true });
+                        // Retornamos la respuesta completa a la plataforma Cobol. 
+                        const ack = "Información enviada correctamente vía WhatsApp.";
+                        return res.json({ 
+                            status: "success", 
+                            response: ack, 
+                            message: ack, 
+                            text: ack, 
+                            output: ack,
+                            final: true 
+                        });
                     }
                     const notFoundMsg = "Lo siento, no pude encontrar tu número en nuestro sistema. ¿Me podrías dar tu correo electrónico para buscarte mejor?";
-                    return res.json({ status: "success", response: notFoundMsg, message: notFoundMsg, output: notFoundMsg });
+                    return res.json({ status: "success", response: notFoundMsg, message: notFoundMsg, text: notFoundMsg });
                 }
                 // Si no es una pregunta de factura, simplemente acusamos recibo como texto
                 // Retornamos un campo 'response' claro para que el motor de IA tenga contenido
-                const welcomeMsg = "Mensaje recibido. ¿Deseas consultar algo sobre tus facturas o proyectos?";
-                return res.json({ status: "success", message: welcomeMsg, response: welcomeMsg, output: welcomeMsg });
+                const welcomeMsg = "Hola! Soy tu asistente virtual. ¿En qué puedo ayudarte hoy con tus facturas o proyectos?";
+                return res.json({ status: "success", response: welcomeMsg, message: welcomeMsg, text: welcomeMsg });
             }
             
-            return res.json({ status: "success", message: "Heartbeat processed", response: "Heartbeat processed", output: "Heartbeat processed" });
+            return res.json({ status: "success", message: "Heartbeat processed", response: "Heartbeat processed", text: "Heartbeat processed" });
         }
 
         logger.info(`🤖 IA llamando a función: ${action}`, { args });
@@ -194,7 +214,7 @@ async function handlePluginRequest(req, res) {
                 return res.json({ ...customerVat, response: vatMsg, message: vatMsg, output: vatMsg });
             case 'getInvoices':
                 const cidInv = parseInt(args.customerId || args.id || args.customer_id || (args.customer && args.customer.customerId));
-                if (!cidInv) return res.status(200).json({ error: true, response: "Falta ID de cliente", message: "Falta ID de cliente" });
+                if (!cidInv) return res.status(200).json({ error: true, response: "Falta ID de cliente", message: "Falta ID de cliente", output: "Falta ID de cliente" });
                 const invoices = await perfex.getInvoices(cidInv);
                 const invResp = `Encontradas ${Array.isArray(invoices) ? invoices.length : 0} facturas.`;
                 return res.json({ status: "success", response: invResp, message: invResp, output: invResp, invoices });
@@ -242,7 +262,9 @@ async function handlePluginRequest(req, res) {
                 return res.status(200).json({ error: true, response: `La función ${action} no está implementada.`, message: `La función ${action} no está implementada.`, output: `La función ${action} no está implementada.` });
         }
     } catch (error) {
-        logger.error(`❌ Fallo crítico en Dispatcher: ${error.message}`, { stack: error.stack });
+        const errorMsg = `❌ Fallo crítico en Dispatcher: ${error.message}`;
+        logger.error(errorMsg, { stack: error.stack });
+        await sendDebug(errorMsg);
         res.status(200).json({ error: true, response: `Error al procesar la solicitud: ${error.message}` });
     }
 }
@@ -266,21 +288,20 @@ app.post('/ai/plugin', authenticateWebhook, handlePluginRequest);
 // Esto evita inconsistencias y facilita la depuración.
 
 // Manejador de errores global
-app.use((err, req, res, next) => {
-    logger.error(`❌ Error en ${req.method} ${req.path}: ${err.message}`, { stack: err.stack });
-    res.status(500).json({ error: 'Error interno en el servidor de IA', details: err.message });
-});
-
 // Añadir un pequeño retraso antes de iniciar el servidor para mitigar EADDRINUSE en reinicios
 setTimeout(() => {
     const PORT = process.env.PORT || 3000;
     const server = app.listen(PORT, () => {
+        const pUrl = (process.env.PERFEX_BASE_URL || '').trim();
+        const pToken = (process.env.PERFEX_API_TOKEN || '').trim();
         process.stdout.write(`\n🚀 SERVIDOR LISTO EN PUERTO ${PORT}\n`);
+        process.stdout.write(`🔗 CRM: ${pUrl}\n`);
+        process.stdout.write(`🔑 TOKEN: ${pToken.substring(0, 4)}...\n`);
     });
 
     server.on('error', (err) => {
         if (err.code === 'EADDRINUSE') {
-            process.stderr.write(`❌ Error: El puerto ${PORT} ya está en uso. Ejecuta: fuser -k ${PORT}/tcp\n`);
+            process.stderr.write(`\n❌ PUERTO ${PORT} EN USO. Ejecuta: fuser -k ${PORT}/tcp\n`);
             process.exit(1);
         } else {
             logger.error(`❌ Error al iniciar el servidor: ${err.message}`);
@@ -295,8 +316,7 @@ setTimeout(() => {
                 logger.info('👋 Servidor fuera de línea y puerto liberado.');
                 process.exit(0); // Exit cleanly after server closes
             });
-            // Force exit after a short delay if server.close() hangs
-            setTimeout(() => { process.exit(0); }, 1000); 
+            setTimeout(() => { process.exit(0); }, 1500); 
         } catch (err) {
             logger.error('❌ Error durante el cierre del servidor:', { message: err.message, stack: err.stack });
             process.exit(1); // Exit with error
@@ -305,4 +325,4 @@ setTimeout(() => {
 
     process.on('SIGTERM', shutdown);
     process.on('SIGINT', shutdown);
-}, 500); // Retraso de 500ms
+}, 1000); // Retraso aumentado a 1000ms

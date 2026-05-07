@@ -91,7 +91,7 @@ switch ($action) {
         
         // Si el número es largo (ej: 12 dígitos como 573001234567), 
         // extraemos los últimos 10 para evitar problemas con el prefijo internacional
-        $searchNumber = (strlen($cleanPhone) >= 10) ? substr($cleanPhone, -10) : $cleanPhone;
+        $searchNumber = (strlen($cleanPhone) > 10) ? substr($cleanPhone, -10) : $cleanPhone;
         if (empty($searchNumber)) { 
             $response = ['found' => false, 'error' => 'Teléfono vacío']; 
             break; 

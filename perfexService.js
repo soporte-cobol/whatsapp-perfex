@@ -27,11 +27,15 @@ class PerfexService {
         if (data) config.data = data;
 
         try {
+            // Log de depuración antes de enviar
+            console.log(`📡 CRM REQ: ${params.action || method} | URL: ${config.url}`);
             const response = await axios(config);
+            console.log(`✅ CRM RES: ${response.status} (OK)`);
             return response.data;
         } catch (error) {
             if (error.response && error.response.status === 401) {
                 const bridgeUrl = `${this.baseUrl}/perfex_bridge.php`;
+                console.error(`🚫 CRM AUTH ERROR (401): Revisa el token en .env y bridge.php`);
                 error.message = `401 Unauthorized en ${bridgeUrl}. Revisa que el token en .env sea idéntico al $secret_key en PHP y que no haya espacios extras.`;
             }
             // Dejamos que el Dispatcher capture y loguee el error con winston
