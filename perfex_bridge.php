@@ -79,15 +79,18 @@ switch ($action) {
         // Si el número es largo (ej: 12 dígitos como 573001234567), 
         // extraemos los últimos 10 para evitar problemas con el prefijo internacional
         $searchNumber = (strlen($cleanPhone) >= 10) ? substr($cleanPhone, -10) : $cleanPhone;
-        if (empty($searchNumber)) { $response = ['found' => false, 'error' => 'Teléfono vacío']; break; }
-        $likePhone = "%" . $searchNumber . "%";
+        if (empty($searchNumber)) { 
+            $response = ['found' => false, 'error' => 'Teléfono vacío']; 
+            break; 
+        }
+        $likePhone = "%" . $searchNumber; // Buscamos que el número termine en estos dígitos
         
         $stmt = $mysqli->prepare("
             SELECT c.userid as customerId, c.id as contactId, c.firstname, c.lastname, cl.company 
             FROM tblcontacts c 
             JOIN tblclients cl ON c.userid = cl.userid 
-            WHERE c.phonenumber LIKE ? LIMIT 1");
-        $stmt->bind_param("s", $likePhone);
+            WHERE c.phonenumber LIKE ? OR cl.phonenumber LIKE ? LIMIT 1");
+        $stmt->bind_param("ss", $likePhone, $likePhone);
         $stmt->execute();
         $result = $stmt->get_result()->fetch_assoc();
         $response = $result ? array_merge($result, ['found' => true]) : ['found' => false, 'error' => 'Cliente no encontrado'];

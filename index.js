@@ -76,6 +76,9 @@ const authenticateWebhook = (req, res, next) => {
  * Si la plataforma solo te permite una URL, usa esta: https://wa.gmgroup.com.co/ai/plugin
  */
 app.post('/ai/plugin', authenticateWebhook, async (req, res) => {
+    // Log crítico para ver qué está enviando la plataforma de Cobol/Gemini
+    logger.info('📥 Petición entrante desde Cobol:', { body: req.body });
+
     // Intentamos obtener el nombre de la función y argumentos de varias formas comunes
     let action = req.body.action || req.body.function || (req.body.calls && req.body.calls[0]?.function?.name);
     let args = req.body.arguments || req.body.params || (req.body.calls && req.body.calls[0]?.function?.arguments) || req.body;
