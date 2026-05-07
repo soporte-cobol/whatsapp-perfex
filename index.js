@@ -65,18 +65,21 @@ app.get('/health', async (req, res) => {
 
 // Middleware de seguridad para los endpoints de Cobol
 const authenticateWebhook = (req, res, next) => {
-    const apiKey = req.headers['x-api-key'] || req.headers['X-API-KEY'] || '';
-    const bodySecret = req.body.secret || req.body.password || '';
+    // Limpiamos espacios en blanco accidentales de los valores recibidos
+    const apiKey = (req.headers['x-api-key'] || req.headers['X-API-KEY'] || '').trim();
+    const bodySecret = (req.body.secret || req.body.password || '').trim();
 
-    const isApiKeyValid = apiKey && apiKey === process.env.WEBHOOK_API_KEY;
-    const isBodySecretValid = bodySecret && bodySecret === process.env.WHATSAPP_API_SECRET;
+    // Cobol envía el Webhook Secret (3368a6...) tanto en el header como en el body secret
+    const expectedWebhookKey = (process.env.WEBHOOK_API_KEY || '').trim();
+
+    const isApiKeyValid = expectedWebhookKey && apiKey === expectedWebhookKey;
+    const isBodySecretValid = expectedWebhookKey && bodySecret === expectedWebhookKey;
 
     if (isApiKeyValid || isBodySecretValid) {
         return next();
     }
 
-    // LOG AGRESIVO: Si esto no sale en combined.log, la petición no está llegando a Node.js
-    const debugMsg = `🚫 BLOQUEADO: Credenciales no encontradas o incorrectas. IP: ${req.ip}. Header API-KEY: ${apiKey ? 'SI' : 'NO'}. Body Secret: ${bodySecret ? 'SI' : 'NO'}. Recibido Secret: "${bodySecret.substring(0, 6)}...". Esperado: "${(process.env.WHATSAPP_API_SECRET || '').substring(0, 6)}..."`;
+    const debugMsg = `🚫 BLOQUEADO: Credenciales incorrectas. IP: ${req.ip}. Recibido: "${bodySecret.substring(0, 8)}...". Esperado: "${expectedWebhookKey.substring(0, 8)}..."`;
     logger.error(debugMsg, { path: req.path, ip: req.ip });
     
     // Devolvemos 200 con error interno para evitar que Gemini rompa por "Empty Content"
@@ -189,5 +192,9 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     logger.info(`🚀 Webhook de IA corriendo en puerto ${PORT}`);
+    // Logs de verificación al arrancar para asegurar que el .env cargó bien
+    const waSecret = (process.env.WHATSAPP_API_SECRET || 'N/A').trim().substring(0, 8);
+    const webKey = (process.env.WEBHOOK_API_KEY || 'N/A').trim().substring(0, 8);
+    logger.info(`🔑 WhatsApp API Secret: "${waSecret}..." | Webhook Key: "${webKey}..."`);
     logger.info(`🔗 Endpoints listos para configurar en el panel de Cobol`);
 });
