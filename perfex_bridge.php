@@ -88,6 +88,14 @@ switch ($action) {
         while ($row = mysqli_fetch_assoc($res)) $projects[] = $row;
         $response = $projects;
         break;
+
+    case 'get_contracts':
+        $cid = intval($_GET['customer_id']);
+        $res = mysqli_query($conn, "SELECT id, subject, contract_value, datestart, dateend FROM tblcontracts WHERE clientid = $cid LIMIT 3");
+        $contracts = [];
+        while ($row = mysqli_fetch_assoc($res)) $contracts[] = $row;
+        $response = $contracts;
+        break;
 }
 
 echo json_encode($response, JSON_UNESCAPED_UNICODE);
