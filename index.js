@@ -234,6 +234,7 @@ app.listen(PORT, () => {
     // Logs de verificación al arrancar para asegurar que el .env cargó bien
     const waSecret = (process.env.WHATSAPP_API_SECRET || 'N/A').trim().substring(0, 8);
     const webKey = (process.env.WEBHOOK_API_KEY || 'N/A').trim().substring(0, 8);
-    logger.info(`🔑 WhatsApp API Secret: "${waSecret}..." | Webhook Key: "${webKey}..."`);
+    const pfxToken = (process.env.PERFEX_API_TOKEN || 'N/A').trim().substring(0, 8);
+    logger.info(`🔑 Tokens -> WA: "${waSecret}..." | Webhook: "${webKey}..." | Perfex: "${pfxToken}..."`);
     logger.info(`🔗 Endpoints listos para configurar en el panel de Cobol`);
 });
