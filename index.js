@@ -87,23 +87,23 @@ const authenticateWebhook = (req, res, next) => {
  * Lógica compartida del Dispatcher (Maneja Plugins y Webhooks)
  */
 async function handlePluginRequest(req, res) {
-    // Log de entrada para verificar que el tráfico llega
-    logger.info(`📥 Petición recibida en ${req.originalUrl || req.url}`, { action: req.body.action || 'webhook_event' });
-
-    // 1. Detectar si es una notificación de evento de WhatsApp
-    if (req.body.message && req.body.from) {
-        logger.info(`💬 Mensaje de ${req.body.from}: ${req.body.message.substring(0, 20)}...`);
-        return res.status(200).json({ status: 'ok', type: 'event_received' });
-    }
-
-    // Intentamos obtener el nombre de la función y argumentos
+    // 1. Intentamos detectar si es una LLAMADA DE FUNCIÓN (Plugin/Tool Call) primero
     let action = req.body.action || req.body.function || (req.body.calls && req.body.calls[0]?.function?.name);
     let args = req.body.arguments || req.body.params || (req.body.calls && req.body.calls[0]?.function?.arguments) || req.body;
 
+    // 2. Si NO hay una acción de plugin, verificamos si es una notificación de evento de WhatsApp
     if (!action) {
-        logger.info('ℹ️ Petición sin acción detectable (posible heartbeat)');
+        if (req.body.message && req.body.from) {
+            logger.info(`💬 Evento de mensaje recibido de ${req.body.from}: ${req.body.message.substring(0, 20)}...`);
+            return res.status(200).json({ status: 'ok', type: 'event_received' });
+        }
+        
+        logger.info('ℹ️ Petición sin acción ni mensaje detectable (posible heartbeat)');
         return res.status(200).json({ status: 'ok', message: 'No action detected' });
     }
+
+    // Log de ejecución de Plugin
+    logger.info(`🤖 IA llamando a función (Raw): ${action}`, { args });
 
     // Parseo de argumentos si vienen como string JSON
     if (typeof args === 'string' && args.trim().startsWith('{')) {
@@ -113,8 +113,6 @@ async function handlePluginRequest(req, res) {
             logger.error(`❌ Error parseando argumentos: ${e.message}`);
         }
     }
-
-    logger.info(`🤖 IA llamando a función: ${action}`, { args });
 
     try {
         switch (action) {
