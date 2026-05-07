@@ -93,6 +93,14 @@ app.post('/ai/plugin', authenticateWebhook, async (req, res) => {
                 if (!args.customerId) return res.status(400).json({ error: "Falta customerId" });
                 const proposals = await perfex.getProposals(parseInt(args.customerId));
                 return res.json(proposals);
+            case 'createContact':
+                // Validación de email antes de enviar a Perfex
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                if (args.email && !emailRegex.test(args.email)) {
+                    return res.status(400).json({ error: 'Formato de email no válido' });
+                }
+                const newContact = await perfex.createContact(args);
+                return res.json(newContact);
             case 'getSupportTickets':
                 if (!args.email) return res.status(400).json({ error: "Falta email" });
                 const tickets = await perfex.getSupportTickets(args.email);
@@ -120,9 +128,11 @@ app.post('/ai/plugin', authenticateWebhook, async (req, res) => {
     }
 });
 
+// Eliminación de rutas individuales obsoletas para favorecer el Dispatcher centralizado
+// Esto evita inconsistencias y facilita la depuración.
+
 /**
- * Endpoint para obtener la hora (getTime)
- * Configurar en Cobol como: https://tudominio.com/ai/get-time
+ * Endpoint para la hora (Migrado a estructura de plugin)
  */
 app.post('/ai/get-time', authenticateWebhook, (req, res) => {
     const { timezone } = req.body;
@@ -135,179 +145,7 @@ app.post('/ai/get-time', authenticateWebhook, (req, res) => {
         });
         res.json({ current_time: time, timezone: timezone || "America/Bogota" });
     } catch (error) {
-        res.status(400).json({ error: "Invalid timezone" });
-    }
-});
-
-/**
- * Endpoint para identificar cliente por teléfono
- */
-app.post('/ai/identify-customer', authenticateWebhook, async (req, res) => {
-    const { phone } = req.body;
-    // Limpiamos el teléfono y validamos longitud mínima
-    if (!phone || phone.replace(/\D/g, '').length < 7) return res.status(400).json({ error: 'Número de teléfono no válido o incompleto' });
-    try {
-        const data = await perfex.getCustomerByPhone(phone);
-        res.json(data);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-/**
- * Endpoint para identificar por email
- */
-app.post('/ai/identify-by-email', authenticateWebhook, async (req, res) => {
-    const { email } = req.body;
-    if (!email) return res.status(400).json({ error: 'Email es requerido' });
-    try {
-        const data = await perfex.getCustomerByEmail(email);
-        res.json(data);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-/**
- * Endpoint para identificar por NIF/NIT (VAT)
- */
-app.post('/ai/identify-by-vat', authenticateWebhook, async (req, res) => {
-    const { vat } = req.body;
-    if (!vat) return res.status(400).json({ error: 'NIF/NIT es requerido' });
-    try {
-        const data = await perfex.getCustomerByVat(vat);
-        res.json(data);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-/**
- * Endpoint para crear contacto
- */
-app.post('/ai/create-contact', authenticateWebhook, async (req, res) => {
-    const { email, phone } = req.body;
-    // Validación rigurosa de formato de email
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (email && !emailRegex.test(email)) {
-        return res.status(400).json({ error: 'El formato del correo electrónico no es válido' });
-    }
-
-    try {
-        // Validar si el teléfono es apto para WhatsApp antes de crear en el CRM
-        if (phone) {
-            const isValid = await whatsapp.validatePhone(phone);
-            if (!isValid) console.warn(`⚠️ Intentando crear contacto con teléfono que no parece tener WhatsApp: ${phone}`);
-        }
-
-        const data = await perfex.createContact(req.body);
-        res.json(data);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-/**
- * Endpoint para crear ticket
- */
-app.post('/ai/create-ticket', authenticateWebhook, async (req, res) => {
-    const { priority, subject, customerId } = req.body;
-    try {
-        const data = await perfex.createTicket(req.body);
-        
-        // Si el ticket es urgente (Prioridad 3), enviamos WhatsApp al administrador
-        if (data.success && priority === 3) {
-            const adminPhone = process.env.ADMIN_WHATSAPP_NUMBER; 
-            if (adminPhone) {
-                const alertMsg = `🚨 *TICKET URGENTE DETECTADO*\n\n*Asunto:* ${subject}\n*Cliente ID:* ${customerId}\n\nLa IA ha categorizado este caso como alta prioridad. Por favor, revisar el CRM. 🚀`;
-                await whatsapp.sendText(adminPhone, alertMsg).catch(e => 
-                    console.error('Error enviando alerta WhatsApp al admin:', e.message)
-                );
-            }
-        }
-
-        res.json(data);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-/**
- * Endpoint para facturas (getInvoices)
- * Configurar en Cobol como: https://tudominio.com/ai/get-invoices
- */
-app.post('/ai/get-invoices', authenticateWebhook, async (req, res) => {
-    const { customerId } = req.body;
-    // Validamos que el ID sea numérico
-    if (!customerId || isNaN(customerId)) return res.status(400).json({ error: 'ID de cliente no válido' });
-    
-    try {
-        const data = await perfex.getInvoices(customerId);
-        res.json(data);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-/**
- * Endpoint para tickets (getSupportTickets)
- */
-app.post('/ai/get-tickets', authenticateWebhook, async (req, res) => {
-    const { email } = req.body;
-    // Validación básica de formato de email
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!email || !emailRegex.test(email)) return res.status(400).json({ error: 'Formato de email no válido' });
-
-    try {
-        const data = await perfex.getSupportTickets(email);
-        res.json(data);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-/**
- * Endpoint para proyectos (getProjects)
- */
-app.post('/ai/get-projects', authenticateWebhook, async (req, res) => {
-    const { customerId } = req.body;
-    if (!customerId) return res.status(400).json({ error: 'customerId es requerido' });
-
-    try {
-        const data = await perfex.getProjects(customerId);
-        res.json(data);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-/**
- * Endpoint para presupuestos (getEstimates)
- */
-app.post('/ai/get-estimates', authenticateWebhook, async (req, res) => {
-    const { customerId } = req.body;
-    if (!customerId) return res.status(400).json({ error: 'customerId es requerido' });
-
-    try {
-        const data = await perfex.getEstimates(customerId);
-        res.json(data);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-/**
- * Endpoint para propuestas (getProposals)
- */
-app.post('/ai/get-proposals', authenticateWebhook, async (req, res) => {
-    const { customerId } = req.body;
-    if (!customerId) return res.status(400).json({ error: 'customerId es requerido' });
-
-    try {
-        const data = await perfex.getProposals(customerId);
-        res.json(data);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
+        res.status(400).json({ error: "Zona horaria no válida" });
     }
 });
 

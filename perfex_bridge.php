@@ -133,7 +133,7 @@ switch ($action) {
         break;
 
     case 'get_invoices':
-        $stmt = $mysqli->prepare("SELECT id, number, total, date, duedate, status FROM tblinvoices WHERE clientid = ?");
+        $stmt = $mysqli->prepare("SELECT id, number, total, date, duedate, status, hash FROM tblinvoices WHERE clientid = ?");
         $stmt->bind_param("i", $customer_id);
         $stmt->execute();
         $response = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
