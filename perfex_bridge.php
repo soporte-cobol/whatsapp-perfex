@@ -33,11 +33,18 @@ $response = [];
 switch ($action) {
     case 'get_customer_by_phone':
         $phone = preg_replace('/\D/', '', $_GET['phone'] ?? '');
-        $search = (strlen($phone) > 7) ? substr($phone, -7) : $phone;
-        $sql = "SELECT c.userid as customerId, c.id as contactId, c.firstname, c.lastname, cl.company 
+        $search10 = substr($phone, -10);
+        $search7 = substr($phone, -7);
+        
+        $sql = "SELECT c.userid as customerId, c.id as contactId, c.firstname, c.lastname, cl.company, c.email 
                 FROM tblcontacts c 
                 LEFT JOIN tblclients cl ON c.userid = cl.userid 
-                WHERE c.phonenumber LIKE '%$search%' OR cl.phonenumber LIKE '%$search%' LIMIT 1";
+                WHERE c.phonenumber LIKE '%$phone%' 
+                   OR cl.phonenumber LIKE '%$phone%' 
+                   OR c.phonenumber LIKE '%$search10%' 
+                   OR c.phonenumber LIKE '%$search7%' 
+                ORDER BY c.is_primary DESC LIMIT 1";
+                
         $res = mysqli_query($conn, $sql);
         $result = mysqli_fetch_assoc($res);
         $response = $result ? array_merge($result, ['found' => true]) : ['found' => false];
@@ -45,13 +52,27 @@ switch ($action) {
 
     case 'get_customer_by_email':
         $email = mysqli_real_escape_string($conn, trim($_GET['email'] ?? ''));
-        $sql = "SELECT c.userid as customerId, c.id as contactId, c.firstname, c.lastname, cl.company 
+        $sql = "SELECT c.userid as customerId, c.id as contactId, c.firstname, c.lastname, cl.company, c.email 
                 FROM tblcontacts c 
                 LEFT JOIN tblclients cl ON c.userid = cl.userid 
                 WHERE c.email = '$email' OR c.email LIKE '%$email%' LIMIT 1";
         $res = mysqli_query($conn, $sql);
         $result = mysqli_fetch_assoc($res);
         $response = $result ? array_merge($result, ['found' => true]) : ['found' => false];
+        break;
+
+    case 'get_customer_by_vat':
+        $vat = mysqli_real_escape_string($conn, trim($_GET['vat'] ?? ''));
+        $sql = "SELECT userid as customerId, company, vat FROM tblclients WHERE vat LIKE '%$vat%' LIMIT 1";
+        $res = mysqli_query($conn, $sql);
+        if ($client = mysqli_fetch_assoc($res)) {
+            $cid = $client['customerId'];
+            $res_c = mysqli_query($conn, "SELECT id as contactId, firstname, lastname, email FROM tblcontacts WHERE userid = $cid ORDER BY is_primary DESC LIMIT 1");
+            $contact = mysqli_fetch_assoc($res_c);
+            $response = array_merge($client, $contact ? $contact : [], ['found' => true]);
+        } else {
+            $response = ['found' => false];
+        }
         break;
 
     case 'get_invoices':
@@ -73,7 +94,7 @@ switch ($action) {
         $post = json_decode(file_get_contents('php://input'), true);
         $subject = mysqli_real_escape_string($conn, $post['subject']);
         $message = mysqli_real_escape_string($conn, $post['message']);
-        $priority = intval($post['priority'] ?? 2); // 1: Low, 2: Medium, 3: High
+        $priority = intval($post['priority'] ?? 2);
         $userid = intval($post['userid']);
         $contactid = intval($post['contactid']);
         $email = mysqli_real_escape_string($conn, $post['email']);
@@ -89,19 +110,6 @@ switch ($action) {
         } else {
             $response = ['success' => false, 'error' => mysqli_error($conn)];
         }
-        break;
-        
-    // Mantener los otros casos (get_projects, get_contracts) si son necesarios
-    case 'get_projects':
-        $cid = intval($_GET['customer_id'] ?? 0);
-        $res = mysqli_query($conn, "SELECT id, name, status FROM tblprojects WHERE clientid = $cid LIMIT 3");
-        while ($row = mysqli_fetch_assoc($res)) $response[] = $row;
-        break;
-        
-    case 'get_contracts':
-        $cid = intval($_GET['customer_id'] ?? 0);
-        $res = mysqli_query($conn, "SELECT id, subject, contract_value, datestart, dateend FROM tblcontracts WHERE clientid = $cid LIMIT 3");
-        while ($row = mysqli_fetch_assoc($res)) $response[] = $row;
         break;
 }
 

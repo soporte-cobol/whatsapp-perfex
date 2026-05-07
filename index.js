@@ -100,10 +100,10 @@ app.post('/ai/plugin', async (req, res) => {
 
         } else {
             console.log(`⚠️ NO ENCONTRADO: ${cleanFrom}`);
-            // Fallback inteligente para captar leads
             let aiFallback = aiConfig.FALLBACK_PROMPT;
             if (gemini.isReady()) {
-                aiFallback = await gemini.generateText(`Eres Laura de GM Group. No encontramos al cliente con el número ${cleanFrom}. Pídele amablemente su correo o NIT para buscarlo en la base de datos de la agencia. Sé muy amable y entusiasta.`);
+                // Instrucción ultra-directa para evitar que alucine
+                aiFallback = await gemini.generateText(`Eres Laura de GM Group. No encuentras al cliente con el número ${cleanFrom}. Pídele amablemente su correo o NIT para buscarlo. RESPONDE DIRECTAMENTE AL CLIENTE, NO DIGAS "AQUÍ TIENES UN BORRADOR". Sé Laura, entusiasta y amable.`);
             }
             await whatsapp.sendText(cleanFrom, aiFallback || aiConfig.FALLBACK_PROMPT);
         }
