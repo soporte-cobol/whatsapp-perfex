@@ -75,20 +75,20 @@ class PerfexService {
         return this._request('get', { action: 'get_invoices', customer_id: customerId, limit });
     }
 
-    async getSupportTickets(email) {
-        return this._request('get', { action: 'get_tickets', email });
+    async getSupportTickets(email, limit = 0) {
+        return this._request('get', { action: 'get_tickets', email, limit });
     }
 
-    async getEstimates(customerId) {
-        return this._request('get', { action: 'get_estimates', customer_id: customerId });
+    async getEstimates(customerId, limit = 0) {
+        return this._request('get', { action: 'get_estimates', customer_id: customerId, limit });
     }
 
-    async getProjects(customerId) {
-        return this._request('get', { action: 'get_projects', customer_id: customerId });
+    async getProjects(customerId, limit = 0) {
+        return this._request('get', { action: 'get_projects', customer_id: customerId, limit });
     }
 
-    async getProposals(customerId) {
-        return this._request('get', { action: 'get_proposals', customer_id: customerId });
+    async getProposals(customerId, limit = 0) {
+        return this._request('get', { action: 'get_proposals', customer_id: customerId, limit });
     }
 
     async createTicket(ticketData) {

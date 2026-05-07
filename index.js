@@ -31,10 +31,11 @@ const logger = winston.createLogger({
 /**
  * Función auxiliar para enviar alertas de depuración al administrador
  */
-async function sendDebug(message) {
+function sendDebug(message) {
     const adminPhone = process.env.ADMIN_WHATSAPP_NUMBER;
     if (adminPhone) {
-        await whatsapp.sendText(adminPhone, `🛠️ *DEBUG LOG:* ${message}`).catch(() => {});
+        // Envío sin esperar (fire and forget) para no retrasar la respuesta al cliente
+        whatsapp.sendText(adminPhone, `🛠️ *DEBUG LOG:* ${message}`).catch(() => {});
     }
 }
 
@@ -125,68 +126,57 @@ async function handlePluginRequest(req, res) {
 
         // 2. Si NO hay acción detectable, es un mensaje directo o heartbeat
         if (!action) {
-            // Intentar extraer mensaje y emisor de varias estructuras posibles
-            const msg = (req.body.data && req.body.data.message) || req.body.message || req.body.text || req.body.body || req.body.query || req.body.body?.data?.message || "";
+            const msg = (req.body.data && req.body.data.message) || req.body.message || req.body.text || req.body.body || "";
             const from = (req.body.data && (req.body.data.phone || req.body.data.wid)) || req.body.from;
 
             if (msg && from) {
-                // Limpieza profunda del número: elimina +, @s.whatsapp.net y deja solo dígitos
-                const cleanFrom = String(from).split('@')[0].replace(/\D/g, '').substring(0, 15);
-                logger.info(`💬 Mensaje recibido de ${cleanFrom}: "${msg.substring(0, 50)}..."`);
+                const cleanFrom = String(from).split('@')[0].replace(/\D/g, '');
+                logger.info(`💬 Mensaje de ${cleanFrom}: "${msg.substring(0, 30)}..."`);
                 
                 const lowerMsg = msg.toLowerCase();
                 const keywordsFactura = ['factura', 'debo', 'pendiente', 'pagos', 'pagar', 'saldo'];
                 const keywordsProyecto = ['proyecto', 'proyectos', 'obra', 'tarea'];
                 
                 if (keywordsFactura.some(k => lowerMsg.includes(k)) || keywordsProyecto.some(k => lowerMsg.includes(k))) {
-                    logger.info(`🚀 CONSULTA RÍGIDA para: ${cleanFrom}`);
-                    await sendDebug(`🚀 Procesando consulta rígida para ${cleanFrom}`);
-                    
-                    const customer = await perfex.getCustomerByPhone(cleanFrom).catch(async (err) => {
-                        await sendDebug(`❌ Error CRM buscando ${cleanFrom}: ${err.message}`);
+                    const customer = await perfex.getCustomerByPhone(cleanFrom).catch(() => {
                         return { found: false };
                     });
                     
                     if (customer.found) {
-                        await sendDebug(`✅ Identificado: ${customer.firstname}. Consultando facturas/proyectos...`);
                         const [invoices, projects] = await Promise.all([
                             keywordsFactura.some(k => lowerMsg.includes(k)) ? perfex.getInvoices(customer.customerId, 1).catch(() => []) : Promise.resolve([]),
-                            keywordsProyecto.some(k => lowerMsg.includes(k)) ? perfex.getProjects(customer.customerId).catch(() => []) : Promise.resolve([])
+                            keywordsProyecto.some(k => lowerMsg.includes(k)) ? perfex.getProjects(customer.customerId, 1).catch(() => []) : Promise.resolve([])
                         ]);
 
-                        let fullResponse = `Hola ${customer.firstname}! 🤖 He consultado tu información directamente:\n`;
+                        let fullResponse = `Hola ${customer.firstname}! 🤖\n`;
                         
                         if (Array.isArray(invoices) && invoices.length > 0) {
                             const pending = invoices.filter(inv => ['Por pagar', 'Vencida', 'Parcialmente pagada'].includes(inv.status_name));
                             if (pending.length > 0) {
                                 const inv = pending[0];
-                                fullResponse += `\n*📄 FACTURA PENDIENTE:*\n` + 
-                                    `• ${inv.number}: $${inv.total} (${inv.status_name})\n  🔗 Pagar: ${inv.view_url}\n`;
-                            } else {
-                                fullResponse += `\n✅ No tienes facturas pendientes de pago.\n`;
+                                fullResponse += `\n*📄 FACTURA PENDIENTE:*\n• ${inv.number}: $${inv.total}\n🔗 Pagar: ${inv.view_url}\n`;
                             }
                         }
 
                         if (Array.isArray(projects) && projects.length > 0) {
-                            fullResponse += `\n*🏗️ PROYECTOS ACTIVOS:*\n` + 
-                                projects.map(p => `• ${p.name} (Estado: ${p.status})`).join('\n');
+                            const proj = projects[0];
+                            fullResponse += `\n*🏗️ PROYECTO ACTIVO:*\n• ${proj.name}\n`;
                         }
+
+                        if (fullResponse.length < 50) fullResponse += "\n✅ No tienes deudas ni proyectos pendientes.";
 
                         // Enviamos WhatsApp directamente (Consulta Rígida)
                         await whatsapp.sendText(cleanFrom, fullResponse).catch(e => logger.error(`Error enviando WhatsApp rígido: ${e.message}`));
 
-                        // Retornamos la respuesta completa a la plataforma Cobol. 
-                        const ack = "Información enviada correctamente vía WhatsApp.";
+                        const ack = "Información enviada correctamente.";
                         return res.json({ 
                             status: "success", 
                             response: ack, 
                             message: ack, 
-                            content: ack,
                             text: ack, 
                             output: ack,
-                            final: true,
-                            stop: true,
-                            direct_reply: true
+                            final: true, 
+                            stop: true 
                         });
                     }
                     const notFoundMsg = "Lo siento, no pude encontrar tu número en nuestro sistema. ¿Me podrías dar tu correo electrónico para buscarte mejor?";

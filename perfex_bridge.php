@@ -77,7 +77,7 @@ $action = $_GET['action'] ?? '';
 // Sanitización básica de la acción
 $action = htmlspecialchars($action, ENT_QUOTES, 'UTF-8');
 $customer_id = isset($_GET['customer_id']) ? intval($_GET['customer_id']) : 0;
-$limit = isset($_GET['limit']) ? intval($_GET['limit']) : 0;
+$limit = (isset($_GET['limit']) && intval($_GET['limit']) > 0) ? intval($_GET['limit']) : 0;
 $email = $_GET['email'] ?? '';
 $phone = $_GET['phone'] ?? '';
 $vat = $_GET['vat'] ?? '';
@@ -173,7 +173,7 @@ switch ($action) {
         break;
 
     case 'get_projects':
-        $stmt = $mysqli->prepare("SELECT id, name, start_date, deadline, status FROM tblprojects WHERE clientid = ?");
+        $stmt = $mysqli->prepare("SELECT id, name, start_date, deadline, status FROM tblprojects WHERE clientid = ? ORDER BY id DESC" . ($limit > 0 ? " LIMIT $limit" : ""));
         $stmt->bind_param("i", $customer_id);
         $stmt->execute();
         $result = $stmt->get_result();
@@ -181,7 +181,7 @@ switch ($action) {
         break;
 
     case 'get_tickets':
-        $stmt = $mysqli->prepare("SELECT ticketid, subject, message, status, date FROM tbltickets WHERE email = ?");
+        $stmt = $mysqli->prepare("SELECT ticketid, subject, message, status, date FROM tbltickets WHERE email = ? ORDER BY date DESC" . ($limit > 0 ? " LIMIT $limit" : ""));
         $stmt->bind_param("s", $email);
         $stmt->execute();
         $result = $stmt->get_result();
@@ -189,7 +189,7 @@ switch ($action) {
         break;
 
     case 'get_estimates':
-        $stmt = $mysqli->prepare("SELECT id, number, total, date, expirydate, status FROM tblestimates WHERE clientid = ?");
+        $stmt = $mysqli->prepare("SELECT id, number, total, date, expirydate, status FROM tblestimates WHERE clientid = ? ORDER BY date DESC" . ($limit > 0 ? " LIMIT $limit" : ""));
         $stmt->bind_param("i", $customer_id);
         $stmt->execute();
         $result = $stmt->get_result();
@@ -197,7 +197,7 @@ switch ($action) {
         break;
 
     case 'get_proposals':
-        $stmt = $mysqli->prepare("SELECT id, subject, total, date, open_till, status FROM tblproposals WHERE rel_id = ? AND rel_type = 'customer'");
+        $stmt = $mysqli->prepare("SELECT id, subject, total, date, open_till, status FROM tblproposals WHERE rel_id = ? AND rel_type = 'customer' ORDER BY date DESC" . ($limit > 0 ? " LIMIT $limit" : ""));
         $stmt->bind_param("i", $customer_id);
         $stmt->execute();
         $result = $stmt->get_result();
