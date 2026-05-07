@@ -24,102 +24,93 @@ app.post('/ai/plugin', async (req, res) => {
         if (!msg) return res.json({ status: "success", stop: true });
 
         const cleanFrom = from.split('@')[0].replace(/\D/g, '');
-        if (from.includes('@g.us') || !cleanFrom) return res.json({ status: "success", stop: true });
+        if (from.includes('@g.us')) return res.json({ status: "success", stop: true });
 
-        console.log(`\n💬 MENSAJE RECIBIDO: "${msg}" de ${cleanFrom}`);
+        console.log(`\n💬 INPUT: "${msg}" de ${cleanFrom}`);
 
         let customer = { found: false };
 
-        // 1. Identificación Multicanal
-        const emailMatch = msg.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-        if (emailMatch) {
-            console.log(`🔍 Buscando por EMAIL: ${emailMatch[0]}`);
-            customer = await perfex.getCustomerByEmail(emailMatch[0]).catch(() => ({ found: false }));
+        // 1. INTENTOS DE IDENTIFICACIÓN
+        // Por NIT (si hay números de 8+ cifras)
+        const nitMatch = msg.match(/\d{8,}/);
+        if (nitMatch) {
+            console.log(`🔍 Buscando NIT: ${nitMatch[0]}`);
+            customer = await perfex.getCustomerByVat(nitMatch[0]).catch(() => ({ found: false }));
         }
-        
+
+        // Por Email
         if (!customer.found) {
-            const nitMatch = msg.match(/\d+/g); // Capturar cualquier grupo de números como posible NIT
-            if (nitMatch && nitMatch.join('').length >= 8) {
-                const potentialNit = nitMatch.join('');
-                console.log(`🔍 Buscando por NIT: ${potentialNit}`);
-                customer = await perfex.getCustomerByVat(potentialNit).catch(() => ({ found: false }));
+            const emailMatch = msg.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+            if (emailMatch) {
+                console.log(`🔍 Buscando Email: ${emailMatch[0]}`);
+                customer = await perfex.getCustomerByEmail(emailMatch[0]).catch(() => ({ found: false }));
             }
         }
 
+        // Por Teléfono (último recurso)
         if (!customer.found) {
-            console.log(`🔍 Buscando por TELÉFONO: ${cleanFrom}`);
+            console.log(`🔍 Buscando Teléfono: ${cleanFrom}`);
             customer = await perfex.getCustomerByPhone(cleanFrom).catch(() => ({ found: false }));
         }
 
         if (customer.found) {
-            console.log(`✅ CLIENTE IDENTIFICADO: ${customer.firstname} | ID: ${customer.customerId}`);
+            console.log(`✅ IDENTIFICADO: ${customer.firstname}`);
             
-            const results = await Promise.allSettled([
-                perfex.getInvoices(customer.customerId),
-                perfex.getProjects(customer.customerId),
-                perfex.getTickets(customer.email || "")
+            const [invoices, projects] = await Promise.all([
+                perfex.getInvoices(customer.customerId).catch(() => []),
+                perfex.getProjects(customer.customerId).catch(() => [])
             ]);
 
-            const invoices = results[0].status === 'fulfilled' ? results[0].value : [];
-            const projects = results[1].status === 'fulfilled' ? results[1].value : [];
-            const tickets = results[2].status === 'fulfilled' ? results[2].value : [];
+            let rigidMsg = `*RESUMEN DE CUENTA GM GROUP* 🏛️\n`;
+            if (invoices.length > 0) {
+                rigidMsg += `\n📄 *Facturas Pendientes:*`;
+                invoices.forEach(i => rigidMsg += `\n• ${i.number}: $${i.total}\n  🔗 ${i.view_url}`);
+            } else {
+                rigidMsg += `\n✅ No tienes facturas pendientes.`;
+            }
 
-            const pendingInvoices = invoices.filter(i => i.status != 2 && i.status != 4 && i.status != 5);
+            const fullPrompt = `
+            ${aiConfig.PRE_PROMPT}
+            REGLA CRÍTICA: Eres Laura. Responde DIRECTAMENTE al cliente. No digas "Aquí tienes un borrador". No uses "Asunto:". 
             
-            let rigidMsg = `*ESTADO DE CUENTA GM GROUP* 🏛️\n`;
-            if (projects.length > 0) {
-                rigidMsg += `\n✈️ *Tus Planes de Viaje:*`;
-                projects.forEach(p => rigidMsg += `\n• ${p.travel_plan}`);
-            }
-            if (pendingInvoices.length > 0) {
-                rigidMsg += `\n\n📄 *Facturas Pendientes:*`;
-                pendingInvoices.forEach(i => rigidMsg += `\n• ${i.number}: $${i.total}\n  🔗 ${i.view_url}`);
-            }
-
-            let aiMsg = null;
-            if (gemini.isReady()) {
-                const fullPrompt = `
-                ${aiConfig.PRE_PROMPT}
-                
-                CONTEXTO CLIENTE:
-                - Nombre: ${customer.firstname}
-                - Empresa: ${customer.company}
-                - Viajes Activos: ${JSON.stringify(projects)}
-                - Pendientes Cobro: ${JSON.stringify(pendingInvoices)}
-                
-                PREGUNTA: "${msg}"
-                
-                REGLA: Si el cliente tiene un problema urgente (como maleta), genera el ticket [CREATE_TICKET: 3 | ASUNTO | RESUMEN].
-                `;
-                aiMsg = await gemini.generateText(fullPrompt);
-            }
-
+            CONTEXTO:
+            - Cliente: ${customer.firstname} (${customer.company})
+            - Viajes: ${JSON.stringify(projects)}
+            
+            MENSAJE DEL CLIENTE: "${msg}"
+            
+            ${aiConfig.POST_PROMPT}
+            `;
+            
+            const aiMsg = await gemini.generateText(fullPrompt);
             if (aiMsg) {
+                // Lógica de tickets
                 if (aiMsg.includes('[CREATE_TICKET:')) {
-                    const match = aiMsg.match(/\[CREATE_TICKET:\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\]/);
-                    if (match) {
-                        const [_, priority, subject, summary] = match;
-                        console.log(`🎫 ACCIÓN: Generando Ticket "${subject}"...`);
+                    const tMatch = aiMsg.match(/\[CREATE_TICKET:\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\]/);
+                    if (tMatch) {
                         await perfex.createTicket({
-                            subject, message: summary, priority,
+                            subject: tMatch[2], message: tMatch[3], priority: tMatch[1],
                             userid: customer.customerId, contactid: customer.contactId,
-                            email: customer.email, name: customer.firstname + ' ' + customer.lastname
+                            email: customer.email, name: customer.firstname
                         });
-                        aiMsg = aiMsg.replace(/\[CREATE_TICKET:.*?\]/g, '').trim();
                     }
                 }
-                await whatsapp.sendText(cleanFrom, aiMsg);
+                const finalAi = aiMsg.replace(/\[CREATE_TICKET:.*?\]/g, '').replace(/Asunto:.*?\n/gi, '').trim();
+                await whatsapp.sendText(cleanFrom, finalAi);
             }
-            
             await whatsapp.sendText(cleanFrom, rigidMsg);
 
         } else {
-            console.log(`⚠️ CLIENTE NO IDENTIFICADO: ${cleanFrom}`);
-            let aiFallback = await gemini.generateText(`Eres Laura de GM Group. Pide amablemente el correo o NIT para el número ${cleanFrom}. Sé entusiasta.`);
+            console.log(`⚠️ NO ENCONTRADO: ${cleanFrom}`);
+            const fallbackPrompt = `Eres Laura de GM Group. NO ENCONTRAMOS al cliente con número ${cleanFrom}. 
+            Responde DIRECTAMENTE pidiendo amablemente su Correo o NIT. 
+            NO digas "Borrador", NO digas "Asunto". Solo responde como Laura.`;
+            
+            const aiFallback = await gemini.generateText(fallbackPrompt);
             await whatsapp.sendText(cleanFrom, aiFallback || aiConfig.FALLBACK_PROMPT);
         }
 
-        return res.json({ status: "success", stop: true });
+        return res.json({ status: "success" });
 
     } catch (error) {
         console.error(`💥 ERROR:`, error.message);
@@ -128,4 +119,4 @@ app.post('/ai/plugin', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`\n🚀 LAURA (MODO DETECTIVE) ONLINE EN PUERTO ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LAURA ONLINE | PUERTO ${PORT}`));
