@@ -90,7 +90,7 @@ switch ($action) {
         $stmt->bind_param("s", $likePhone);
         $stmt->execute();
         $result = $stmt->get_result()->fetch_assoc();
-        $response = $result ? $result : ['error' => 'Cliente no encontrado'];
+        $response = $result ? array_merge($result, ['found' => true]) : ['found' => false, 'error' => 'Cliente no encontrado'];
         break;
 
     case 'get_customer_by_email':
@@ -98,11 +98,11 @@ switch ($action) {
             SELECT c.userid as customerId, c.id as contactId, c.firstname, c.lastname, cl.company 
             FROM tblcontacts c 
             JOIN tblclients cl ON c.userid = cl.userid 
-            WHERE c.email = ? LIMIT 1");
+            WHERE c.email = ? ORDER BY c.is_primary DESC, c.id DESC LIMIT 1");
         $stmt->bind_param("s", $email);
         $stmt->execute();
         $result = $stmt->get_result()->fetch_assoc();
-        $response = $result ? $result : ['error' => 'Cliente no encontrado'];
+        $response = $result ? array_merge($result, ['found' => true]) : ['found' => false, 'error' => 'Cliente no encontrado'];
         break;
 
     case 'get_customer_by_vat':
@@ -126,17 +126,32 @@ switch ($action) {
                 $contact = $stmt_fallback->get_result()->fetch_assoc();
             }
             
-            $response = array_merge($client, $contact ? $contact : []);
+            $response = array_merge($client, $contact ? $contact : [], ['found' => true]);
         } else {
-            $response = ['error' => 'Cliente no encontrado'];
+            $response = ['found' => false, 'error' => 'Cliente no encontrado'];
         }
         break;
 
     case 'get_invoices':
-        $stmt = $mysqli->prepare("SELECT id, number, total, date, duedate, status, hash FROM tblinvoices WHERE clientid = ?");
+        $stmt = $mysqli->prepare("
+            SELECT id, number, total, date, duedate, status, hash,
+            CASE 
+                WHEN status = 1 THEN 'Por pagar'
+                WHEN status = 2 THEN 'Pagada'
+                WHEN status = 3 THEN 'Parcialmente pagada'
+                WHEN status = 4 THEN 'Vencida'
+                WHEN status = 5 THEN 'Cancelada'
+                WHEN status = 6 THEN 'Borrador'
+                ELSE 'Desconocido'
+            END as status_name
+            FROM tblinvoices WHERE clientid = ? ORDER BY date DESC");
         $stmt->bind_param("i", $customer_id);
         $stmt->execute();
-        $response = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        foreach ($rows as &$row) {
+            $row['view_url'] = "https://portal.gmgroup.com.co/invoice/" . $row['id'] . "/" . $row['hash'];
+        }
+        $response = $rows;
         break;
 
     case 'get_projects':

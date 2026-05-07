@@ -95,9 +95,15 @@ app.post('/ai/plugin', authenticateWebhook, async (req, res) => {
         switch (action) {
             case 'identifyCustomer':
                 const customer = await perfex.getCustomerByPhone(args.phone);
+                if (!customer.found) {
+                    logger.info(`🔍 Cliente no encontrado por teléfono: ${args.phone}`);
+                }
                 return res.json(customer);
             case 'identifyByEmail':
                 const customerByEmail = await perfex.getCustomerByEmail(args.email);
+                if (!customerByEmail.found) {
+                    logger.info(`🔍 Cliente no encontrado por email: ${args.email}`);
+                }
                 return res.json(customerByEmail);
             case 'identifyByVat':
                 const customerByVat = await perfex.getCustomerByVat(args.vat);
