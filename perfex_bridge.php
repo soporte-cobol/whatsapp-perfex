@@ -1,247 +1,104 @@
 <?php
 /**
- * Bridge para conectar el Bot de IA con la base de datos de Perfex
- * Subir este archivo a la raiz de Perfex CRM
+ * Bridge Optimizado y Ultra-Compatible para Perfex CRM
  */
+header('Content-Type: application/json; charset=utf-8');
+error_reporting(E_ALL); 
+ini_set('display_errors', 0); // No mostrar a cliente, pero sí procesar
 
-define('BASEPATH', 'dummy');
-
-// Validación preventiva: Verificar si el archivo de configuración de Perfex existe
+// 1. Cargar Configuración de Perfex
 if (!file_exists(__DIR__ . '/application/config/app-config.php')) {
-    http_response_code(500);
-    die(json_encode([
-        'error' => 'Configuración de Perfex no encontrada.',
-        'detalle' => 'El archivo app-config.php no se encontró en application/config/.',
-        'path' => __DIR__
-    ]));
+    die(json_encode(['error' => 'No se encontró app-config.php']));
 }
 require_once(__DIR__ . '/application/config/app-config.php');
 
-// Seguridad: Token para que solo tu bot pueda consultar
-$secret_key = "EgyysBsXsJsKNj5HGWfF"; // <--- ESTE DEBE COINCIDIR CON PERFEX_API_TOKEN EN TU .ENV
+// 2. Validación de Token
+$secret_key = "EgyysBsXsJsKNj5HGWfF";
+$received_token = $_GET['token'] ?? '';
 
-// Seguridad Extra: Es altamente recomendable validar el origen.
-// Si conoces la IP de tu servidor Node, descomenta las siguientes líneas:
-// $allowed_ips = ['127.0.0.1', 'IP_DE_TU_SERVIDOR_NODE']; 
-// if (!in_array($_SERVER['REMOTE_ADDR'], $allowed_ips)) {
-//     http_response_code(403);
-//     exit(json_encode(['error' => 'IP no autorizada']));
-// }
-
-header('Content-Type: application/json');
-
-// Obtener el token de autorización de forma más robusta para diversos entornos
-$auth_header = '';
-
-if (isset($_SERVER['HTTP_AUTHORIZATION'])) {
-    $auth_header = $_SERVER['HTTP_AUTHORIZATION'];
-} elseif (isset($_SERVER['REDIRECT_HTTP_AUTHORIZATION'])) {
-    $auth_header = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'];
-} elseif (function_exists('apache_request_headers')) {
-    $headers = apache_request_headers();
-    $auth_header = $headers['Authorization'] ?? $headers['authorization'] ?? $auth_header;
+// También buscar en el header Authorization
+if (empty($received_token) && isset($_SERVER['HTTP_AUTHORIZATION'])) {
+    $received_token = str_ireplace('Bearer ', '', $_SERVER['HTTP_AUTHORIZATION']);
 }
 
-// Fallback: Obtener el token desde la URL si Apache eliminó el encabezado Authorization
-if (empty($auth_header) && isset($_GET['token'])) {
-    $auth_header = $_GET['token'];
-}
-
-// Limpieza: Eliminar prefijo "Bearer " si existe y quitar espacios
-$auth_header = trim((string)$auth_header);
-if (stripos($auth_header, 'Bearer ') === 0) {
-    $auth_header = trim(substr($auth_header, 7));
-}
-
-$clean_secret = trim((string)$secret_key);
-
-if (empty($auth_header) || $auth_header !== $clean_secret) {
-    // Log detallado para soporte técnico
-    error_log("❌ PERFEX BRIDGE AUTH ERROR: Recibido [" . ($auth_header ?: 'VACIO') . "] | Esperado [" . $clean_secret . "] | IP: " . $_SERVER['REMOTE_ADDR'] . " | UA: " . ($_SERVER['HTTP_USER_AGENT'] ?? 'N/A'));
-    
+if (trim($received_token) !== trim($secret_key)) {
     http_response_code(401);
-    echo json_encode(['error' => 'No autorizado', 'debug' => 'Token mismatch']);
-    exit;
+    die(json_encode(['error' => 'Token inválido', 'received' => $received_token]));
 }
 
-// Activar reporte de errores para depuración
-mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
-
-$mysqli = new mysqli(APP_DB_HOSTNAME, APP_DB_USERNAME, APP_DB_PASSWORD, APP_DB_NAME);
-
-if ($mysqli->connect_error) {
-    die(json_encode(['error' => 'Fallo de conexión']));
+// 3. Conexión a Base de Datos (Modo Compatible)
+$conn = mysqli_connect(APP_DB_HOSTNAME, APP_DB_USERNAME, APP_DB_PASSWORD, APP_DB_NAME);
+if (!$conn) {
+    die(json_encode(['error' => 'Error de conexión DB']));
 }
+mysqli_set_charset($conn, "utf8");
 
 $action = $_GET['action'] ?? '';
-// Sanitización básica de la acción
-$action = htmlspecialchars($action, ENT_QUOTES, 'UTF-8');
-$customer_id = isset($_GET['customer_id']) ? intval($_GET['customer_id']) : 0;
-$limit = (isset($_GET['limit']) && intval($_GET['limit']) > 0) ? intval($_GET['limit']) : 0;
-$email = $_GET['email'] ?? '';
-$phone = $_GET['phone'] ?? '';
-$vat = $_GET['vat'] ?? '';
-
-$response = [];
+$response = ['found' => false];
 
 switch ($action) {
     case 'get_customer_by_phone':
-        $cleanPhone = preg_replace('/[^0-9]/', '', $phone);
-        $searchNumber = (strlen($cleanPhone) > 7) ? substr($cleanPhone, -7) : $cleanPhone;
-        if (empty($searchNumber)) { 
-            $response = ['found' => false, 'error' => 'Teléfono vacío']; 
-            break; 
-        }
-        $likePhone = "%" . $searchNumber . "%";
+        $phone = preg_replace('/\D/', '', $_GET['phone'] ?? '');
+        $search = (strlen($phone) > 7) ? substr($phone, -7) : $phone;
         
-        $stmt = $mysqli->prepare("
-            SELECT c.userid as customerId, c.id as contactId, c.firstname, c.lastname, cl.company 
-            FROM tblcontacts c 
-            LEFT JOIN tblclients cl ON c.userid = cl.userid 
-            WHERE c.phonenumber LIKE ? OR cl.phonenumber LIKE ? OR c.firstname LIKE ? LIMIT 1");
-        $stmt->bind_param("sss", $likePhone, $likePhone, $likePhone);
-        $stmt->execute();
-        $result = $stmt->get_result()->fetch_assoc();
-        $response = $result ? array_merge($result, ['found' => true]) : ['found' => false, 'error' => 'No match for ' . $searchNumber];
+        $sql = "SELECT c.userid as customerId, c.id as contactId, c.firstname, c.lastname, cl.company 
+                FROM tblcontacts c 
+                LEFT JOIN tblclients cl ON c.userid = cl.userid 
+                WHERE c.phonenumber LIKE '%$search%' OR cl.phonenumber LIKE '%$search%' 
+                LIMIT 1";
+        
+        $res = mysqli_query($conn, $sql);
+        if ($row = mysqli_fetch_assoc($res)) {
+            $response = array_merge($row, ['found' => true]);
+        }
         break;
 
     case 'get_customer_by_email':
-        $cleanEmail = trim(strtolower($email));
-        $stmt = $mysqli->prepare("
-            SELECT c.userid as customerId, c.id as contactId, c.firstname, c.lastname, cl.company 
-            FROM tblcontacts c 
-            LEFT JOIN tblclients cl ON c.userid = cl.userid 
-            WHERE TRIM(LOWER(c.email)) = ? OR c.email LIKE ? LIMIT 1");
-        $likeEmail = "%" . $cleanEmail . "%";
-        $stmt->bind_param("ss", $cleanEmail, $likeEmail);
-        $stmt->execute();
-        $result = $stmt->get_result()->fetch_assoc();
-        $response = $result ? array_merge($result, ['found' => true]) : ['found' => false, 'error' => 'No match for email ' . $cleanEmail];
+        $email = mysqli_real_escape_string($conn, trim($_GET['email'] ?? ''));
+        $sql = "SELECT c.userid as customerId, c.id as contactId, c.firstname, c.lastname, cl.company 
+                FROM tblcontacts c 
+                LEFT JOIN tblclients cl ON c.userid = cl.userid 
+                WHERE c.email = '$email' OR c.email LIKE '%$email%'
+                LIMIT 1";
+        
+        $res = mysqli_query($conn, $sql);
+        if ($row = mysqli_fetch_assoc($res)) {
+            $response = array_merge($row, ['found' => true]);
+        }
         break;
 
     case 'get_customer_by_vat':
-        $stmt = $mysqli->prepare("SELECT userid as customerId, company FROM tblclients WHERE vat = ? LIMIT 1");
-        $stmt->bind_param("s", $vat);
-        $stmt->execute();
-        $client = $stmt->get_result()->fetch_assoc();
-        
-        if ($client) {
-            // Buscamos el contacto principal para que el ticket quede bien asignado
-            $stmt_contact = $mysqli->prepare("SELECT id as contactId, firstname, lastname FROM tblcontacts WHERE userid = ? AND is_primary = 1 LIMIT 1");
-            $stmt_contact->bind_param("i", $client['customerId']);
-            $stmt_contact->execute();
-            $contact = $stmt_contact->get_result()->fetch_assoc();
-            
-            // FALLBACK: Si no hay un contacto marcado como principal, tomamos el primero que encontremos
-            if (!$contact) {
-                $stmt_fallback = $mysqli->prepare("SELECT id as contactId, firstname, lastname FROM tblcontacts WHERE userid = ? ORDER BY id ASC LIMIT 1");
-                $stmt_fallback->bind_param("i", $client['customerId']);
-                $stmt_fallback->execute();
-                $contact = $stmt_fallback->get_result()->fetch_assoc();
-            }
-            
+        $vat = mysqli_real_escape_string($conn, trim($_GET['vat'] ?? ''));
+        $sql = "SELECT userid as customerId, company FROM tblclients WHERE vat LIKE '%$vat%' LIMIT 1";
+        $res = mysqli_query($conn, $sql);
+        if ($client = mysqli_fetch_assoc($res)) {
+            $cid = $client['customerId'];
+            $sql_c = "SELECT id as contactId, firstname, lastname FROM tblcontacts WHERE userid = $cid ORDER BY is_primary DESC LIMIT 1";
+            $res_c = mysqli_query($conn, $sql_c);
+            $contact = mysqli_fetch_assoc($res_c);
             $response = array_merge($client, $contact ? $contact : [], ['found' => true]);
-        } else {
-            $response = ['found' => false, 'error' => 'Cliente no encontrado'];
         }
         break;
 
     case 'get_invoices':
-        $stmt = $mysqli->prepare("
-            SELECT id, number, total, date, duedate, status, hash,
-            CASE 
-                WHEN status = 1 THEN 'Por pagar'
-                WHEN status = 2 THEN 'Pagada'
-                WHEN status = 3 THEN 'Parcialmente pagada'
-                WHEN status = 4 THEN 'Vencida'
-                WHEN status = 5 THEN 'Cancelada'
-                WHEN status = 6 THEN 'Borrador'
-                ELSE 'Desconocido'
-            END as status_name
-            FROM tblinvoices WHERE clientid = ? ORDER BY date DESC" . ($limit > 0 ? " LIMIT $limit" : ""));
-        $stmt->bind_param("i", $customer_id);
-        $stmt->execute();
-        $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-        foreach ($rows as &$row) {
+        $cid = intval($_GET['customer_id']);
+        $sql = "SELECT id, number, total, status, hash FROM tblinvoices WHERE clientid = $cid ORDER BY id DESC LIMIT 5";
+        $res = mysqli_query($conn, $sql);
+        $invoices = [];
+        while ($row = mysqli_fetch_assoc($res)) {
             $row['view_url'] = "https://portal.gmgroup.com.co/invoice/" . $row['id'] . "/" . $row['hash'];
+            $invoices[] = $row;
         }
-        $response = is_array($rows) ? $rows : []; // Aseguramos que siempre sea un array
+        $response = $invoices;
         break;
 
     case 'get_projects':
-        $stmt = $mysqli->prepare("SELECT id, name, start_date, deadline, status FROM tblprojects WHERE clientid = ? ORDER BY id DESC" . ($limit > 0 ? " LIMIT $limit" : ""));
-        $stmt->bind_param("i", $customer_id);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        $response = $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
-        break;
-
-    case 'get_tickets':
-        $stmt = $mysqli->prepare("SELECT ticketid, subject, message, status, date FROM tbltickets WHERE email = ? ORDER BY date DESC" . ($limit > 0 ? " LIMIT $limit" : ""));
-        $stmt->bind_param("s", $email);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        $response = $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
-        break;
-
-    case 'get_estimates':
-        $stmt = $mysqli->prepare("SELECT id, number, total, date, expirydate, status FROM tblestimates WHERE clientid = ? ORDER BY date DESC" . ($limit > 0 ? " LIMIT $limit" : ""));
-        $stmt->bind_param("i", $customer_id);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        $response = $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
-        break;
-
-    case 'get_proposals':
-        $stmt = $mysqli->prepare("SELECT id, subject, total, date, open_till, status FROM tblproposals WHERE rel_id = ? AND rel_type = 'customer' ORDER BY date DESC" . ($limit > 0 ? " LIMIT $limit" : ""));
-        $stmt->bind_param("i", $customer_id);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        $response = $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
-        break;
-
-    case 'create_ticket':
-        $data = json_decode(file_get_contents('php://input'), true);
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            http_response_code(400);
-            echo json_encode(['error' => 'JSON inválido']);
-            exit;
-        }
-        $subject = $data['subject'] ?? 'Ticket desde WhatsApp';
-        $message = $data['message'] ?? '';
-        $userid = $data['customerId'] ?? 0;
-        $contactid = $data['contactId'] ?? 0;
-        $priority = $data['priority'] ?? 1; // 1: Baja, 2: Media, 3: Alta
-        
-        // Corregimos la consulta para que acepte el parámetro de prioridad
-        $stmt = $mysqli->prepare("INSERT INTO tbltickets (subject, message, userid, contactid, department, priority, status, date) VALUES (?, ?, ?, ?, 1, ?, 1, NOW())");
-        $stmt->bind_param("ssiii", $subject, $message, $userid, $contactid, $priority);
-        
-        if ($stmt->execute()) {
-            $ticketid = $stmt->insert_id;
-            $response = ['success' => true, 'ticketid' => $ticketid];
-        } else {
-            $response = ['error' => 'Error al crear el ticket'];
-        }
-        break;
-
-    case 'create_contact':
-        $data = json_decode(file_get_contents('php://input'), true);
-        $firstname = $data['firstname'] ?? '';
-        $lastname = $data['lastname'] ?? '';
-        $email = $data['email'] ?? '';
-        $userid = $data['customerId'] ?? 0;
-        $phone = $data['phone'] ?? '';
-
-        // Insertar nuevo contacto
-        $stmt = $mysqli->prepare("INSERT INTO tblcontacts (firstname, lastname, email, userid, phonenumber, datecreated) VALUES (?, ?, ?, ?, ?, NOW())");
-        $stmt->bind_param("sssis", $firstname, $lastname, $email, $userid, $phone);
-
-        if ($stmt->execute()) {
-            $response = ['success' => true, 'contactId' => $stmt->insert_id];
-        } else {
-            $response = ['error' => 'Error al crear el contacto'];
-        }
+        $cid = intval($_GET['customer_id']);
+        $sql = "SELECT id, name, status FROM tblprojects WHERE clientid = $cid LIMIT 3";
+        $res = mysqli_query($conn, $sql);
+        $projects = [];
+        while ($row = mysqli_fetch_assoc($res)) { $projects[] = $row; }
+        $response = $projects;
         break;
 
     default:
@@ -249,4 +106,4 @@ switch ($action) {
 }
 
 echo json_encode($response, JSON_UNESCAPED_UNICODE);
-$mysqli->close();
+mysqli_close($conn);
