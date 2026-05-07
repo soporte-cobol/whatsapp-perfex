@@ -18,7 +18,7 @@ app.use((req, res, next) => {
 
 const perfex = new PerfexService(process.env.PERFEX_BASE_URL, process.env.PERFEX_API_TOKEN);
 const whatsapp = new WhatsAppService(process.env.WHATSAPP_API_SECRET, process.env.WHATSAPP_ACCOUNT_ID);
-const gemini = new GeminiService(process.env.GEMINI_API_KEY, "gemini-1.5-flash");
+const gemini = new GeminiService(process.env.GEMINI_API_KEY, "gemini-2.5-flash");
 
 app.post('/ai/plugin', async (req, res) => {
     try {
