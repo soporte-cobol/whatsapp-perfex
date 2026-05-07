@@ -83,7 +83,7 @@ const authenticateWebhook = (req, res, next) => {
     logger.error(debugMsg, { path: req.path, ip: req.ip });
     
     // Devolvemos 200 con error interno para evitar que Gemini rompa por "Empty Content"
-    return res.status(200).json({ error: true, response: 'Error de autenticación: Credenciales del webhook incorrectas.' });
+    return res.status(200).json({ error: true, response: 'Error de autenticación: Las credenciales del webhook no coinciden.' });
 };
 
 /**
@@ -185,15 +185,15 @@ async function handlePluginRequest(req, res) {
                 const cidInv = parseInt(args.customerId || args.id || args.customer_id || (args.customer && args.customer.customerId));
                 if (!cidInv) return res.status(200).json({ error: true, response: "Falta ID de cliente" });
                 const invoices = await perfex.getInvoices(cidInv);
-                return res.json({ invoices });
+                return res.json({ status: "success", response: `Encontradas ${invoices.length} facturas.`, invoices });
             case 'getProjects':
                 const cidProj = parseInt(args.customerId || args.id || args.customer_id);
                 const projects = cidProj ? await perfex.getProjects(cidProj) : [];
-                return res.json({ projects });
+                return res.json({ status: "success", response: `Encontrados ${projects.length} proyectos.`, projects });
             case 'getEstimates':
                 const cidEst = parseInt(args.customerId || args.id || args.customer_id);
                 const estimates = cidEst ? await perfex.getEstimates(cidEst) : [];
-                return res.json({ estimates });
+                return res.json({ status: "success", response: `Encontrados ${estimates.length} presupuestos.`, estimates });
             case 'getProposals':
                 const cidProp = parseInt(args.customerId || args.id || args.customer_id);
                 const proposals = cidProp ? await perfex.getProposals(cidProp) : [];
@@ -259,9 +259,11 @@ const server = app.listen(PORT, () => {
     
     process.stdout.write(`🚀 Servidor listo en puerto ${PORT}\n`);
     process.stdout.write(`🔑 WA: ${waSecret}... | WEB: ${webKey}...\n`);
-}).on('error', (err) => {
+})
+
+server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
-        logger.error(`❌ El puerto ${PORT} ya está en uso. Intenta ejecutar: fuser -k ${PORT}/tcp`);
+        process.stderr.write(`❌ Error: El puerto ${PORT} ya está en uso. Ejecuta: fuser -k ${PORT}/tcp\n`);
         process.exit(1);
     } else {
         logger.error(`❌ Error al iniciar el servidor: ${err.message}`);
