@@ -83,7 +83,7 @@ const authenticateWebhook = (req, res, next) => {
     logger.error(debugMsg, { path: req.path, ip: req.ip });
     
     // Devolvemos 200 con error interno para evitar que Gemini rompa por "Empty Content"
-    return res.status(200).json({ error: true, message: 'Auth failed' });
+    return res.status(200).json({ error: true, response: 'Error de autenticación: Credenciales del webhook incorrectas.' });
 };
 
 /**
@@ -259,6 +259,13 @@ const server = app.listen(PORT, () => {
     
     process.stdout.write(`🚀 Servidor listo en puerto ${PORT}\n`);
     process.stdout.write(`🔑 WA: ${waSecret}... | WEB: ${webKey}...\n`);
+}).on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+        logger.error(`❌ El puerto ${PORT} ya está en uso. Intenta ejecutar: fuser -k ${PORT}/tcp`);
+        process.exit(1);
+    } else {
+        logger.error(`❌ Error al iniciar el servidor: ${err.message}`);
+    }
 });
 
 // Manejo de cierre grácil para liberar el puerto correctamente

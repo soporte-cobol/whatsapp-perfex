@@ -32,7 +32,7 @@ class PerfexService {
         } catch (error) {
             if (error.response && error.response.status === 401) {
                 // Agregamos un mensaje específico para depurar el 401
-                error.message = `Autenticación fallida con Perfex Bridge (401). Verifica que el token en .env coincida con el $secret_key en PHP.`;
+                error.message = `Auth 401: El token de Perfex no coincide. Revisa el .env y el $secret_key en el bridge PHP.`;
             }
             // Dejamos que el Dispatcher capture y loguee el error con winston
             throw error;
