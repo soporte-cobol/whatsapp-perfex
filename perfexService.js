@@ -11,134 +11,62 @@ class PerfexService {
         };
     }
 
-    async getCustomerByPhone(phone) {
+    async _request(method, params = {}, data = null) {
+        const config = {
+            method,
+            url: `${this.baseUrl}/perfex_bridge.php`,
+            headers: this.headers,
+            params
+        };
+        if (data) config.data = data;
+
         try {
-            const response = await axios.get(`${this.baseUrl}/perfex_bridge.php`, {
-                headers: this.headers,
-                params: { action: 'get_customer_by_phone', phone: phone }
-            });
+            const response = await axios(config);
             return response.data;
         } catch (error) {
-            console.error('Error al identificar cliente en Perfex:', error.message);
+            console.error(`Error en PerfexService (${params.action || 'POST'}):`, error.message);
             throw error;
         }
+    }
+
+    async getCustomerByPhone(phone) {
+        return this._request('get', { action: 'get_customer_by_phone', phone });
     }
 
     async getCustomerByEmail(email) {
-        try {
-            const response = await axios.get(`${this.baseUrl}/perfex_bridge.php`, {
-                headers: this.headers,
-                params: { action: 'get_customer_by_email', email: email }
-            });
-            return response.data;
-        } catch (error) {
-            console.error('Error al identificar cliente por email:', error.message);
-            throw error;
-        }
+        return this._request('get', { action: 'get_customer_by_email', email });
     }
 
     async getCustomerByVat(vat) {
-        try {
-            const response = await axios.get(`${this.baseUrl}/perfex_bridge.php`, {
-                headers: this.headers,
-                params: { action: 'get_customer_by_vat', vat: vat }
-            });
-            return response.data;
-        } catch (error) {
-            console.error('Error al identificar cliente por VAT/NIT:', error.message);
-            throw error;
-        }
+        return this._request('get', { action: 'get_customer_by_vat', vat });
     }
 
     async getInvoices(customerId) {
-        try {
-            const response = await axios.get(`${this.baseUrl}/perfex_bridge.php`, { 
-                headers: this.headers,
-                params: { action: 'get_invoices', customer_id: customerId }
-            });
-            return response.data;
-        } catch (error) {
-            console.error('Error al consultar facturas en Perfex:', error.message);
-            throw error;
-        }
+        return this._request('get', { action: 'get_invoices', customer_id: customerId });
     }
 
     async getSupportTickets(email) {
-        try {
-            const response = await axios.get(`${this.baseUrl}/perfex_bridge.php`, {
-                headers: this.headers,
-                params: { action: 'get_tickets', email: email }
-            });
-            return response.data;
-        } catch (error) {
-            console.error('Error al consultar tickets en Perfex:', error.message);
-            throw error;
-        }
+        return this._request('get', { action: 'get_tickets', email });
     }
 
     async getEstimates(customerId) {
-        try {
-            const response = await axios.get(`${this.baseUrl}/perfex_bridge.php`, {
-                headers: this.headers,
-                params: { action: 'get_estimates', customer_id: customerId }
-            });
-            return response.data;
-        } catch (error) {
-            console.error('Error al consultar presupuestos en Perfex:', error.message);
-            throw error;
-        }
+        return this._request('get', { action: 'get_estimates', customer_id: customerId });
     }
 
     async getProjects(customerId) {
-        try {
-            const response = await axios.get(`${this.baseUrl}/perfex_bridge.php`, {
-                headers: this.headers,
-                params: { action: 'get_projects', customer_id: customerId }
-            });
-            return response.data;
-        } catch (error) {
-            console.error('Error al consultar proyectos en Perfex:', error.message);
-            throw error;
-        }
+        return this._request('get', { action: 'get_projects', customer_id: customerId });
     }
 
     async getProposals(customerId) {
-        try {
-            const response = await axios.get(`${this.baseUrl}/perfex_bridge.php`, {
-                headers: this.headers,
-                params: { action: 'get_proposals', customer_id: customerId }
-            });
-            return response.data;
-        } catch (error) {
-            console.error('Error al consultar propuestas en Perfex:', error.message);
-            throw error;
-        }
+        return this._request('get', { action: 'get_proposals', customer_id: customerId });
     }
 
     async createTicket(ticketData) {
-        try {
-            const response = await axios.post(`${this.baseUrl}/perfex_bridge.php?action=create_ticket`, 
-                ticketData, 
-                { headers: this.headers }
-            );
-            return response.data;
-        } catch (error) {
-            console.error('Error al crear ticket en Perfex:', error.message);
-            throw error;
-        }
+        return this._request('post', { action: 'create_ticket' }, ticketData);
     }
 
     async createContact(contactData) {
-        try {
-            const response = await axios.post(`${this.baseUrl}/perfex_bridge.php?action=create_contact`, 
-                contactData, 
-                { headers: this.headers }
-            );
-            return response.data;
-        } catch (error) {
-            console.error('Error al crear contacto en Perfex:', error.message);
-            throw error;
-        }
+        return this._request('post', { action: 'create_contact' }, contactData);
     }
 }
 

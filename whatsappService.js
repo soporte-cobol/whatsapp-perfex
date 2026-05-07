@@ -35,6 +35,26 @@ class WhatsAppService {
             throw error;
         }
     }
+
+    /**
+     * Valida si un número de teléfono existe en WhatsApp
+     */
+    async validatePhone(phone) {
+        const url = `${this.baseUrl}/validate/whatsapp`;
+        try {
+            const response = await axios.get(url, {
+                params: {
+                    secret: this.secret,
+                    unique: this.accountId,
+                    phone: phone
+                }
+            });
+            return response.data.status === 200;
+        } catch (error) {
+            console.error('Error validando teléfono en WhatsApp:', error.message);
+            return false;
+        }
+    }
 }
 
 module.exports = WhatsAppService;

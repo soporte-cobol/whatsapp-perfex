@@ -43,10 +43,37 @@ const authenticateWebhook = (req, res, next) => {
 };
 
 /**
+ * Endpoint Central (Dispatcher)
+ * Si la plataforma solo te permite una URL, usa esta: https://wa.gmgroup.com.co/ai/plugin
+ */
+app.post('/ai/plugin', authenticateWebhook, async (req, res) => {
+    const { function: funcName, arguments: args } = req.body; // Depende de cómo envíe los datos la plataforma
+    const action = req.body.action || funcName; // Ajustar según el formato de Cobol
+
+    try {
+        switch (action) {
+            case 'identifyCustomer':
+                const customer = await perfex.getCustomerByPhone(args.phone);
+                return res.json(customer);
+            case 'getInvoices':
+                const invoices = await perfex.getInvoices(args.customerId);
+                return res.json(invoices);
+            case 'createTicket':
+                const ticket = await perfex.createTicket(args);
+                return res.json(ticket);
+            default:
+                return res.status(404).json({ error: `Función ${action} no encontrada` });
+        }
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * Endpoint para obtener la hora (getTime)
  * Configurar en Cobol como: https://tudominio.com/ai/get-time
  */
-app.post('/ai/get-time', (req, res) => {
+app.post('/ai/get-time', authenticateWebhook, (req, res) => {
     const { timezone } = req.body;
     try {
         const time = new Date().toLocaleString("en-US", {
@@ -108,13 +135,20 @@ app.post('/ai/identify-by-vat', authenticateWebhook, async (req, res) => {
  * Endpoint para crear contacto
  */
 app.post('/ai/create-contact', authenticateWebhook, async (req, res) => {
-    const { email, customerId } = req.body;
+    const { email, phone } = req.body;
     // Validación rigurosa de formato de email
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (email && !emailRegex.test(email)) {
         return res.status(400).json({ error: 'El formato del correo electrónico no es válido' });
     }
+
     try {
+        // Validar si el teléfono es apto para WhatsApp antes de crear en el CRM
+        if (phone) {
+            const isValid = await whatsapp.validatePhone(phone);
+            if (!isValid) console.warn(`⚠️ Intentando crear contacto con teléfono que no parece tener WhatsApp: ${phone}`);
+        }
+
         const data = await perfex.createContact(req.body);
         res.json(data);
     } catch (error) {
