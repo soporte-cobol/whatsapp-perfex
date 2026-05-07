@@ -32,11 +32,12 @@ class PerfexService {
 
     async checkHealth() {
         try {
-            // Intentamos una acción inexistente o básica para ver si el bridge responde 401 o 200
+            // Si el bridge responde, está vivo. El 401 significa que el token es incorrecto pero el archivo existe.
             const response = await axios.get(`${this.baseUrl}/perfex_bridge.php`, { headers: this.headers });
             return response.status === 200;
         } catch (error) {
-            return error.response?.status === 200;
+            // Si el servidor responde con 401, el bridge está cargando correctamente pero el token no coincide
+            return error.response && (error.response.status === 200 || error.response.status === 401);
         }
     }
 
