@@ -78,12 +78,39 @@ app.post('/ai/plugin', authenticateWebhook, async (req, res) => {
                 const customerByVat = await perfex.getCustomerByVat(args.vat);
                 return res.json(customerByVat);
             case 'getInvoices':
-                // Aseguramos que customerId sea un número
-                const invId = parseInt(args.customerId);
-                const invoices = await perfex.getInvoices(invId);
+                if (!args.customerId) return res.status(400).json({ error: "Falta customerId" });
+                const invoices = await perfex.getInvoices(parseInt(args.customerId));
                 return res.json(invoices);
+            case 'getProjects':
+                if (!args.customerId) return res.status(400).json({ error: "Falta customerId" });
+                const projects = await perfex.getProjects(parseInt(args.customerId));
+                return res.json(projects);
+            case 'getEstimates':
+                if (!args.customerId) return res.status(400).json({ error: "Falta customerId" });
+                const estimates = await perfex.getEstimates(parseInt(args.customerId));
+                return res.json(estimates);
+            case 'getProposals':
+                if (!args.customerId) return res.status(400).json({ error: "Falta customerId" });
+                const proposals = await perfex.getProposals(parseInt(args.customerId));
+                return res.json(proposals);
+            case 'getSupportTickets':
+                if (!args.email) return res.status(400).json({ error: "Falta email" });
+                const tickets = await perfex.getSupportTickets(args.email);
+                return res.json(tickets);
             case 'createTicket':
                 const ticket = await perfex.createTicket(args);
+                
+                // Si el ticket es urgente (Prioridad 3), enviamos WhatsApp al administrador (Lógica unificada)
+                if (ticket.success && parseInt(args.priority) === 3) {
+                    const adminPhone = process.env.ADMIN_WHATSAPP_NUMBER; 
+                    if (adminPhone) {
+                        const subject = args.subject || 'Sin asunto';
+                        const alertMsg = `🚨 *TICKET URGENTE DETECTADO*\n\n*Asunto:* ${subject}\n*Cliente ID:* ${args.customerId}\n\nLa IA ha categorizado este caso como alta prioridad. Por favor, revisar el CRM. 🚀`;
+                        await whatsapp.sendText(adminPhone, alertMsg).catch(e => 
+                            console.error('Error enviando alerta WhatsApp al admin:', e.message)
+                        );
+                    }
+                }
                 return res.json(ticket);
             default:
                 return res.status(404).json({ error: `Función ${action} no encontrada` });
