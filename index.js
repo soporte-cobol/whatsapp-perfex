@@ -181,10 +181,12 @@ app.post('/ai/plugin', authenticateWebhook, async (req, res) => {
                 }
                 return res.json(ticket);
             default:
-                return res.status(404).json({ error: `Función ${action} no encontrada` });
+                logger.warn(`⚠️ Función no reconocida: ${action}`);
+                return res.status(200).json({ error: true, message: `La función ${action} no está implementada aún.` });
         }
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        logger.error(`❌ Error ejecutando acción ${action}: ${error.message}`);
+        res.status(200).json({ error: true, message: `Error al interactuar con el CRM: ${error.message}` });
     }
 });
 
