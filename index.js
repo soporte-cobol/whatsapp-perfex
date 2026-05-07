@@ -47,14 +47,23 @@ const authenticateWebhook = (req, res, next) => {
  * Si la plataforma solo te permite una URL, usa esta: https://wa.gmgroup.com.co/ai/plugin
  */
 app.post('/ai/plugin', authenticateWebhook, async (req, res) => {
-    const { function: funcName, arguments: args } = req.body; // Depende de cómo envíe los datos la plataforma
-    const action = req.body.action || funcName; // Ajustar según el formato de Cobol
+    // Intentamos obtener el nombre de la función y argumentos de varias formas comunes
+    const action = req.body.action || req.body.function || (req.body.calls && req.body.calls[0]?.function?.name);
+    const args = req.body.arguments || req.body.params || (req.body.calls && JSON.parse(req.body.calls[0]?.function?.arguments || "{}")) || req.body;
+
+    console.log(`🤖 IA llamando a función: ${action}`, args);
 
     try {
         switch (action) {
             case 'identifyCustomer':
                 const customer = await perfex.getCustomerByPhone(args.phone);
                 return res.json(customer);
+            case 'identifyByEmail':
+                const customerByEmail = await perfex.getCustomerByEmail(args.email);
+                return res.json(customerByEmail);
+            case 'identifyByVat':
+                const customerByVat = await perfex.getCustomerByVat(args.vat);
+                return res.json(customerByVat);
             case 'getInvoices':
                 const invoices = await perfex.getInvoices(args.customerId);
                 return res.json(invoices);
