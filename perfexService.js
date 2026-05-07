@@ -6,8 +6,9 @@ const axios = require('axios');
 class PerfexService {
     constructor(baseUrl, apiToken) {
         this.baseUrl = baseUrl ? baseUrl.replace(/\/+$/, '') : '';
+        this.apiToken = apiToken;
         this.headers = {
-            'Authorization': apiToken
+            'Authorization': `Bearer ${apiToken.replace('Bearer ', '').trim()}`
         };
     }
 
@@ -18,11 +19,10 @@ class PerfexService {
             headers: this.headers,
             params: {
                 ...params,
-                token: this.headers.Authorization
+                token: this.apiToken
             },
             timeout: 10000 // Timeout de 10 segundos para no bloquear la IA
         };
-        console.log(`[DEBUG PerfexService] Enviando token (inicio): ${this.headers.Authorization.substring(0, 8)}...`);
         if (data) config.data = data;
 
         try {

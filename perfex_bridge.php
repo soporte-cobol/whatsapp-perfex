@@ -54,11 +54,13 @@ if (stripos($auth_header, 'Bearer ') === 0) {
 }
 
 // DESCOMENTAR PARA DEPURAR: Esto aparecerá en el "error_log" de tu cPanel del CRM
-error_log("DEBUG BRIDGE: Recibido [" . ($auth_header ?: 'VACIO') . "] | Esperado [" . $secret_key . "]");
+if (empty($auth_header) || $auth_header !== trim((string)$secret_key)) {
+    error_log("❌ AUTH FAILED: Recibido [" . ($auth_header ?: 'VACIO') . "] | Esperado [" . $secret_key . "] | IP: " . $_SERVER['REMOTE_ADDR']);
+}
 
 if (empty($auth_header) || $auth_header !== trim((string)$secret_key)) {
     http_response_code(401);
-    echo json_encode(['error' => 'No autorizado']);
+    echo json_encode(['error' => 'No autorizado', 'debug' => 'Token mismatch']);
     exit;
 }
 
