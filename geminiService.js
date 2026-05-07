@@ -27,7 +27,7 @@ class GeminiService {
                 ],
                 generationConfig: {
                     temperature: 0.7,
-                    maxOutputTokens: 500,
+                    maxOutputTokens: 1000,
                 }
             };
 

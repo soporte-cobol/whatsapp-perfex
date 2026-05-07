@@ -85,7 +85,19 @@ app.post('/ai/plugin', async (req, res) => {
             // 3. IA Laura
             let aiMsg = null;
             if (gemini.isReady()) {
-                const fullPrompt = `${aiConfig.PRE_PROMPT}\n\nCliente: ${customer.firstname}. Info CRM: ${rigidMsg}\n\nPregunta: "${msg}"\n\n${aiConfig.POST_PROMPT}`;
+                const fullPrompt = `
+                ${aiConfig.PRE_PROMPT}
+                
+                NUESTROS DESTINOS Y FAQs:
+                ${aiConfig.KNOWLEDGE_BASE}
+                
+                CLIENTE ACTUAL: ${customer.firstname} ${customer.lastname}
+                DATOS CRM: ${rigidMsg}
+                
+                PREGUNTA DEL CLIENTE: "${msg}"
+                
+                ${aiConfig.POST_PROMPT}
+                `;
                 aiMsg = await gemini.generateText(fullPrompt);
             }
 
