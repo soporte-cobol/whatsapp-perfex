@@ -253,31 +253,35 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 3000;
-const server = app.listen(PORT, () => {
-    const waSecret = (process.env.WHATSAPP_API_SECRET || '').trim().substring(0, 6);
-    const webKey = (process.env.WEBHOOK_API_KEY || '').trim().substring(0, 6);
-    
-    process.stdout.write(`🚀 Servidor listo en puerto ${PORT}\n`);
-    process.stdout.write(`🔑 WA: ${waSecret}... | WEB: ${webKey}...\n`);
-})
 
-server.on('error', (err) => {
-    if (err.code === 'EADDRINUSE') {
-        process.stderr.write(`❌ Error: El puerto ${PORT} ya está en uso. Ejecuta: fuser -k ${PORT}/tcp\n`);
-        process.exit(1);
-    } else {
-        logger.error(`❌ Error al iniciar el servidor: ${err.message}`);
-    }
-});
-
-// Manejo de cierre grácil para liberar el puerto correctamente
-const shutdown = () => {
-    logger.info('🛑 Cerrando servidor...');
-    server.close(() => {
-        logger.info('👋 Servidor fuera de línea y puerto liberado.');
-        process.exit(0);
+// Añadir un pequeño retraso antes de iniciar el servidor para mitigar EADDRINUSE en reinicios
+setTimeout(() => {
+    const server = app.listen(PORT, () => {
+        const waSecret = (process.env.WHATSAPP_API_SECRET || '').trim().substring(0, 6);
+        const webKey = (process.env.WEBHOOK_API_KEY || '').trim().substring(0, 6);
+        
+        process.stdout.write(`🚀 Servidor listo en puerto ${PORT}\n`);
+        process.stdout.write(`🔑 WA: ${waSecret}... | WEB: ${webKey}...\n`);
     });
-};
 
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
+    server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+            process.stderr.write(`❌ Error: El puerto ${PORT} ya está en uso. Ejecuta: fuser -k ${PORT}/tcp\n`);
+            process.exit(1);
+        } else {
+            logger.error(`❌ Error al iniciar el servidor: ${err.message}`);
+        }
+    });
+
+    // Manejo de cierre grácil para liberar el puerto correctamente
+    const shutdown = () => {
+        logger.info('🛑 Cerrando servidor...');
+        server.close(() => {
+            logger.info('👋 Servidor fuera de línea y puerto liberado.');
+            process.exit(0);
+        });
+    };
+
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
+}, 500); // Retraso de 500ms
