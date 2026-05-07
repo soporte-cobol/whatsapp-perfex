@@ -27,8 +27,8 @@ $conn = mysqli_connect(APP_DB_HOSTNAME, APP_DB_USERNAME, APP_DB_PASSWORD, APP_DB
 if (!$conn) die(json_encode(['error' => 'Error DB']));
 mysqli_set_charset($conn, "utf8");
 
-$action = $_GET['action'] ?? '';
-$response = []; // Default a array vacío para evitar errores de forEach
+$action = $_GET['action'] ?? $_POST['action'] ?? '';
+$response = [];
 
 switch ($action) {
     case 'get_customer_by_phone':
@@ -54,20 +54,6 @@ switch ($action) {
         $response = $result ? array_merge($result, ['found' => true]) : ['found' => false];
         break;
 
-    case 'get_customer_by_vat':
-        $vat = mysqli_real_escape_string($conn, trim($_GET['vat'] ?? ''));
-        $sql = "SELECT userid as customerId, company FROM tblclients WHERE vat LIKE '%$vat%' LIMIT 1";
-        $res = mysqli_query($conn, $sql);
-        if ($client = mysqli_fetch_assoc($res)) {
-            $cid = $client['customerId'];
-            $res_c = mysqli_query($conn, "SELECT id as contactId, firstname, lastname FROM tblcontacts WHERE userid = $cid ORDER BY is_primary DESC LIMIT 1");
-            $contact = mysqli_fetch_assoc($res_c);
-            $response = array_merge($client, $contact ? $contact : [], ['found' => true]);
-        } else {
-            $response = ['found' => false];
-        }
-        break;
-
     case 'get_invoices':
         $cid = intval($_GET['customer_id'] ?? 0);
         $res = mysqli_query($conn, "SELECT id, number, total, status, hash FROM tblinvoices WHERE clientid = $cid ORDER BY id DESC LIMIT 5");
@@ -77,21 +63,44 @@ switch ($action) {
         }
         break;
 
+    case 'get_tickets':
+        $email = mysqli_real_escape_string($conn, trim($_GET['email'] ?? ''));
+        $res = mysqli_query($conn, "SELECT ticketid, subject, status FROM tbltickets WHERE email = '$email' ORDER BY date DESC LIMIT 3");
+        while ($row = mysqli_fetch_assoc($res)) $response[] = $row;
+        break;
+
+    case 'create_ticket':
+        $post = json_decode(file_get_contents('php://input'), true);
+        $subject = mysqli_real_escape_string($conn, $post['subject']);
+        $message = mysqli_real_escape_string($conn, $post['message']);
+        $priority = intval($post['priority'] ?? 2); // 1: Low, 2: Medium, 3: High
+        $userid = intval($post['userid']);
+        $contactid = intval($post['contactid']);
+        $email = mysqli_real_escape_string($conn, $post['email']);
+        $name = mysqli_real_escape_string($conn, $post['name']);
+        $date = date('Y-m-d H:i:s');
+        $ticketkey = md5(uniqid(rand(), true));
+
+        $sql = "INSERT INTO tbltickets (userid, contactid, email, name, department, priority, status, subject, message, date, ticketkey) 
+                VALUES ($userid, $contactid, '$email', '$name', 1, $priority, 1, '$subject', '$message', '$date', '$ticketkey')";
+        
+        if (mysqli_query($conn, $sql)) {
+            $response = ['success' => true, 'ticketid' => mysqli_insert_id($conn)];
+        } else {
+            $response = ['success' => false, 'error' => mysqli_error($conn)];
+        }
+        break;
+        
+    // Mantener los otros casos (get_projects, get_contracts) si son necesarios
     case 'get_projects':
         $cid = intval($_GET['customer_id'] ?? 0);
         $res = mysqli_query($conn, "SELECT id, name, status FROM tblprojects WHERE clientid = $cid LIMIT 3");
         while ($row = mysqli_fetch_assoc($res)) $response[] = $row;
         break;
-
+        
     case 'get_contracts':
         $cid = intval($_GET['customer_id'] ?? 0);
         $res = mysqli_query($conn, "SELECT id, subject, contract_value, datestart, dateend FROM tblcontracts WHERE clientid = $cid LIMIT 3");
-        while ($row = mysqli_fetch_assoc($res)) $response[] = $row;
-        break;
-
-    case 'get_tickets':
-        $email = mysqli_real_escape_string($conn, trim($_GET['email'] ?? ''));
-        $res = mysqli_query($conn, "SELECT ticketid, subject, status FROM tbltickets WHERE email = '$email' ORDER BY date DESC LIMIT 3");
         while ($row = mysqli_fetch_assoc($res)) $response[] = $row;
         break;
 }

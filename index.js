@@ -7,7 +7,6 @@ const aiConfig = require('./aiConfig');
 
 const app = express();
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
 const perfex = new PerfexService(process.env.PERFEX_BASE_URL, process.env.PERFEX_API_TOKEN);
 const whatsapp = new WhatsAppService(process.env.WHATSAPP_API_SECRET, process.env.WHATSAPP_ACCOUNT_ID);
@@ -24,19 +23,17 @@ app.post('/ai/plugin', async (req, res) => {
         if (!msg) return res.json({ status: "success", stop: true });
 
         const cleanFrom = String(from).split('@')[0].replace(/\D/g, '');
-        console.log(`\n💬 Mensaje de ${cleanFrom}: "${msg}"`);
+        console.log(`\n💬 De: ${cleanFrom} | Msg: "${msg}"`);
 
         let customer = { found: false };
 
         // 1. Identificación
         const emailMatch = msg.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-        if (emailMatch) {
-            customer = await perfex.getCustomerByEmail(emailMatch[0]).catch(() => ({ found: false }));
-        }
-
-        const nitMatch = msg.match(/\d{9}-\d|\d{9}/);
-        if (!customer.found && nitMatch) {
-            customer = await perfex.getCustomerByVat(nitMatch[0]).catch(() => ({ found: false }));
+        if (emailMatch) customer = await perfex.getCustomerByEmail(emailMatch[0]).catch(() => ({ found: false }));
+        
+        if (!customer.found) {
+            const nitMatch = msg.match(/\d{9}-\d|\d{9}/);
+            if (nitMatch) customer = await perfex.getCustomerByVat(nitMatch[0]).catch(() => ({ found: false }));
         }
 
         if (!customer.found) {
@@ -49,37 +46,22 @@ app.post('/ai/plugin', async (req, res) => {
         if (customer.found) {
             console.log(`✅ IDENTIFICADO: ${customer.firstname}`);
             
-            // 2. Recopilación Segura
+            // 2. Datos CRM
             const results = await Promise.allSettled([
                 perfex.getInvoices(customer.customerId, 5),
                 perfex.getProjects(customer.customerId, 3),
                 perfex.getContracts(customer.customerId, 3),
-                perfex.getTickets(customer.email, 3)
+                perfex.getTickets(customer.email || "", 3)
             ]);
 
             const invoices = results[0].status === 'fulfilled' && Array.isArray(results[0].value) ? results[0].value : [];
-            const projects = results[1].status === 'fulfilled' && Array.isArray(results[1].value) ? results[1].value : [];
-            const contracts = results[2].status === 'fulfilled' && Array.isArray(results[2].value) ? results[2].value : [];
             const tickets = results[3].status === 'fulfilled' && Array.isArray(results[3].value) ? results[3].value : [];
 
             const pending = invoices.filter(i => i.status != 2 && i.status != 4 && i.status != 5);
-            
             let rigidMsg = `*RESUMEN DE CUENTA GM GROUP* 🏛️\n`;
             if (pending.length > 0) {
                 rigidMsg += `\n📄 *Facturas Pendientes:*`;
                 pending.forEach(i => rigidMsg += `\n• ${i.number}: $${i.total}\n  🔗 ${i.view_url}`);
-            }
-            if (projects.length > 0) {
-                rigidMsg += `\n\n🏗️ *Tus Proyectos:*`;
-                projects.forEach(p => rigidMsg += `\n• ${p.name}`);
-            }
-            if (contracts.length > 0) {
-                rigidMsg += `\n\n📜 *Contratos:*`;
-                contracts.forEach(c => rigidMsg += `\n• ${c.subject}`);
-            }
-            if (tickets.length > 0) {
-                rigidMsg += `\n\n🎫 *Tickets de Soporte:*`;
-                tickets.forEach(t => rigidMsg += `\n• ${t.subject} (Estado: ${t.status})`);
             }
 
             // 3. IA Laura
@@ -88,13 +70,15 @@ app.post('/ai/plugin', async (req, res) => {
                 const fullPrompt = `
                 ${aiConfig.PRE_PROMPT}
                 
-                NUESTROS DESTINOS Y FAQs:
+                CONOCIMIENTO:
                 ${aiConfig.KNOWLEDGE_BASE}
                 
-                CLIENTE ACTUAL: ${customer.firstname} ${customer.lastname}
-                DATOS CRM: ${rigidMsg}
+                DATOS CLIENTE:
+                - Nombre: ${customer.firstname} ${customer.lastname}
+                - Invoices: ${JSON.stringify(invoices)}
+                - Tickets Activos: ${JSON.stringify(tickets)}
                 
-                PREGUNTA DEL CLIENTE: "${msg}"
+                PREGUNTA: "${msg}"
                 
                 ${aiConfig.POST_PROMPT}
                 `;
@@ -102,23 +86,40 @@ app.post('/ai/plugin', async (req, res) => {
             }
 
             if (aiMsg) {
+                // DETECCIÓN DE TICKET
+                if (aiMsg.includes('[CREATE_TICKET:')) {
+                    const match = aiMsg.match(/\[CREATE_TICKET:\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\]/);
+                    if (match) {
+                        const [_, priority, subject, summary] = match;
+                        console.log(`🎫 GENERANDO TICKET: ${subject} (Prioridad: ${priority})`);
+                        await perfex.createTicket({
+                            subject,
+                            message: summary,
+                            priority,
+                            userid: customer.customerId,
+                            contactid: customer.contactId,
+                            email: customer.email,
+                            name: customer.firstname + ' ' + customer.lastname
+                        }).catch(e => console.error("❌ Error creando ticket:", e.message));
+                        
+                        // Limpiar el tag de la respuesta
+                        aiMsg = aiMsg.replace(/\[CREATE_TICKET:.*?\]/, '').trim();
+                    }
+                }
                 await whatsapp.sendText(cleanFrom, aiMsg);
             } else {
-                await whatsapp.sendText(cleanFrom, `¡Hola ${customer.firstname}! Soy ${aiConfig.BOT_NAME}. Aquí tienes tus datos:`);
+                await whatsapp.sendText(cleanFrom, `¡Hola ${customer.firstname}! Soy ${aiConfig.BOT_NAME}.`);
             }
             
             await whatsapp.sendText(cleanFrom, rigidMsg);
 
         } else {
             console.log(`⚠️ NO ENCONTRADO.`);
-            let aiFallback = aiConfig.FALLBACK_PROMPT;
-            if (gemini.isReady()) {
-                aiFallback = await gemini.generateText(`Contexto: ${aiConfig.PRE_PROMPT}. Pide amablemente correo o NIT.`).catch(() => aiFallback);
-            }
-            await whatsapp.sendText(cleanFrom, aiFallback);
+            const fallback = gemini.isReady() ? await gemini.generateText(aiConfig.FALLBACK_PROMPT) : aiConfig.FALLBACK_PROMPT;
+            await whatsapp.sendText(cleanFrom, fallback || aiConfig.FALLBACK_PROMPT);
         }
 
-        return res.json({ status: "success", response: "", final: true, stop: true });
+        return res.json({ status: "success", stop: true });
 
     } catch (error) {
         console.error(`💥 Error Crítico:`, error.message);
@@ -126,9 +127,5 @@ app.post('/ai/plugin', async (req, res) => {
     }
 });
 
-app.post('/', (req, res) => res.redirect(307, '/ai/plugin'));
-
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`\n🚀 LAURA (VERSIÓN BLINDADA) ONLINE EN PUERTO ${PORT}`);
-});
+app.listen(PORT, () => console.log(`\n🚀 LAURA (ADMIN) ONLINE EN PUERTO ${PORT}`));
