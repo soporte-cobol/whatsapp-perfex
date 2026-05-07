@@ -48,8 +48,17 @@ const authenticateWebhook = (req, res, next) => {
  */
 app.post('/ai/plugin', authenticateWebhook, async (req, res) => {
     // Intentamos obtener el nombre de la función y argumentos de varias formas comunes
-    const action = req.body.action || req.body.function || (req.body.calls && req.body.calls[0]?.function?.name);
-    const args = req.body.arguments || req.body.params || (req.body.calls && JSON.parse(req.body.calls[0]?.function?.arguments || "{}")) || req.body;
+    let action = req.body.action || req.body.function || (req.body.calls && req.body.calls[0]?.function?.name);
+    let args = req.body.arguments || req.body.params || (req.body.calls && req.body.calls[0]?.function?.arguments) || req.body;
+
+    // Si args llega como un string (común en Gemini Function Calling), lo parseamos
+    if (typeof args === 'string') {
+        try {
+            args = JSON.parse(args);
+        } catch (e) {
+            console.error("❌ Error parseando argumentos:", e.message);
+        }
+    }
 
     console.log(`🤖 IA llamando a función: ${action}`, args);
 
