@@ -92,11 +92,12 @@ const authenticateWebhook = (req, res, next) => {
 async function handlePluginRequest(req, res) {
     // 1. Detectar si es una LLAMADA DE FUNCIÓN (Plugin/Tool Call) primero
     let action = req.body.action || req.body.function || req.body.name || req.body.method || 
-                 req.body.command || req.body.tool ||
+                 req.body.command || req.body.tool || req.body.plugin ||
                  (req.body.data && (req.body.data.action || req.body.data.function || req.body.data.name)) ||
                  (req.body.calls && req.body.calls[0]?.function?.name);
 
     let args = req.body.arguments || req.body.args || req.body.params || req.body.data ||
+               req.body.input ||
                (req.body.calls && req.body.calls[0]?.function?.arguments) || req.body;
 
     // 2. Si NO hay una acción detectable, verificamos si es una notificación de mensaje o heartbeat
@@ -106,13 +107,26 @@ async function handlePluginRequest(req, res) {
 
         if (msg && from) {
             logger.info(`💬 Evento de mensaje recibido de ${from}: ${msg.substring(0, 20)}...`);
-            // IMPORTANTE: Devolvemos un objeto vacío. Esto evita que la plataforma de Cobol 
-            // intente inyectar nuestra respuesta técnica dentro del prompt de Gemini.
-            return res.status(200).json({});
+            
+            // Si el mensaje del usuario contiene palabras clave de facturas, intentamos identificar y buscar
+            const lowerMsg = msg.toLowerCase();
+            if (lowerMsg.includes('factura') || lowerMsg.includes('debo') || lowerMsg.includes('pendiente') || lowerMsg.includes('pagos') || lowerMsg.includes('pagar')) {
+                // Aquí tu webhook decide llamar a la herramienta.
+                // Primero, intentamos identificar al cliente por el número de WhatsApp
+                const customer = await perfex.getCustomerByPhone(from);
+                if (customer.found) {
+                    const invoices = await perfex.getInvoices(customer.customerId);
+                    // Devolvemos la respuesta de las facturas para que Gemini la procese
+                    return res.status(200).json({ invoices: invoices, customer: customer });
+                }
+                return res.status(200).json({ text: "No pude identificarte para buscar facturas. Por favor, dime tu correo electrónico." });
+            }
+            // Si no es una pregunta de factura, simplemente acusamos recibo como texto
+            return res.status(200).json({ text: `Mensaje recibido: "${msg.substring(0, 50)}..."` });
         }
         
-        logger.info('ℹ️ Petición sin acción detectable o Heartbeat');
-        return res.status(200).json({}); // Siempre devolvemos un objeto vacío para estos casos
+        logger.info('ℹ️ Heartbeat o petición sin acción detectable. Respondiendo con placeholder.');
+        return res.status(200).json({ text: 'Heartbeat processed' });
     }
 
     // Log de ejecución de Plugin
