@@ -1,7 +1,32 @@
 require('dotenv').config();
 const express = require('express');
+const winston = require('winston');
+const path = require('path');
+const fs = require('fs');
 const PerfexService = require('./perfexService');
 const WhatsAppService = require('./whatsappService');
+
+// Asegurar que la carpeta de logs exista
+const logDir = path.join(__dirname, 'logs');
+if (!fs.existsSync(logDir)) {
+    fs.mkdirSync(logDir);
+}
+
+// Configuración de Winston
+const logger = winston.createLogger({
+    level: 'info',
+    format: winston.format.combine(
+        winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+        winston.format.json()
+    ),
+    transports: [
+        new winston.transports.File({ filename: path.join(logDir, 'error.log'), level: 'error' }),
+        new winston.transports.File({ filename: path.join(logDir, 'combined.log') }),
+        new winston.transports.Console({
+            format: winston.format.combine(winston.format.colorize(), winston.format.simple())
+        })
+    ]
+});
 
 const app = express();
 app.use(express.json());
@@ -40,7 +65,7 @@ app.get('/health', async (req, res) => {
 const authenticateWebhook = (req, res, next) => {
     const apiKey = req.headers['x-api-key'];
     if (!apiKey || apiKey !== process.env.WEBHOOK_API_KEY) {
-        console.warn(`🚫 Intento de acceso no autorizado desde: ${req.ip}`);
+        logger.warn(`🚫 Intento de acceso no autorizado desde: ${req.ip}`);
         return res.status(401).json({ error: 'No autorizado. Falta o es incorrecta la X-API-KEY' });
     }
     next();
@@ -60,11 +85,11 @@ app.post('/ai/plugin', authenticateWebhook, async (req, res) => {
         try {
             args = JSON.parse(args);
         } catch (e) {
-            console.error("❌ Error parseando argumentos:", e.message);
+            logger.error(`❌ Error parseando argumentos: ${e.message}`);
         }
     }
 
-    console.log(`🤖 IA llamando a función: ${action}`, args);
+    logger.info(`🤖 IA llamando a función: ${action}`, { args });
 
     try {
         switch (action) {
@@ -115,7 +140,7 @@ app.post('/ai/plugin', authenticateWebhook, async (req, res) => {
                         const subject = args.subject || 'Sin asunto';
                         const alertMsg = `🚨 *TICKET URGENTE DETECTADO*\n\n*Asunto:* ${subject}\n*Cliente ID:* ${args.customerId}\n\nLa IA ha categorizado este caso como alta prioridad. Por favor, revisar el CRM. 🚀`;
                         await whatsapp.sendText(adminPhone, alertMsg).catch(e => 
-                            console.error('Error enviando alerta WhatsApp al admin:', e.message)
+                            logger.error(`Error enviando alerta WhatsApp al admin: ${e.message}`)
                         );
                     }
                 }
@@ -151,12 +176,12 @@ app.post('/ai/get-time', authenticateWebhook, (req, res) => {
 
 // Manejador de errores global
 app.use((err, req, res, next) => {
-    console.error(`❌ Error en ${req.method} ${req.path}:`, err.message);
+    logger.error(`❌ Error en ${req.method} ${req.path}: ${err.message}`, { stack: err.stack });
     res.status(500).json({ error: 'Error interno en el servidor de IA', details: err.message });
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`🚀 Webhook de IA corriendo en puerto ${PORT}`);
-    console.log(`🔗 Endpoints listos para configurar en el panel de Cobol`);
+    logger.info(`🚀 Webhook de IA corriendo en puerto ${PORT}`);
+    logger.info(`🔗 Endpoints listos para configurar en el panel de Cobol`);
 });
