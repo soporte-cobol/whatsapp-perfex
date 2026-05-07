@@ -1,7 +1,7 @@
 {
   "watch": ["index.js", "perfexService.js", "whatsappService.js", ".env"],
   "ext": "js",
-  "ignore": ["logs/*", "*.log", "node_modules/*"],
+  "ignore": ["logs/", "*.log", "node_modules/"],
   "delay": "2000",
   "signal": "SIGTERM"
 }

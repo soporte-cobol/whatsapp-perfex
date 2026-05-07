@@ -122,32 +122,35 @@ async function handlePluginRequest(req, res) {
             if (msg && from) {
                 logger.info(`💬 Mensaje recibido de ${from}`);
                 const lowerMsg = msg.toLowerCase();
-                const keywords = ['factura', 'debo', 'pendiente', 'pagos', 'pagar', 'saldo', 'proyecto', 'proyectos'];
+                const keywordsFactura = ['factura', 'debo', 'pendiente', 'pagos', 'pagar', 'saldo'];
+                const keywordsProyecto = ['proyecto', 'proyectos', 'obra', 'tarea'];
                 
-                if (keywords.some(k => lowerMsg.includes(k))) {
+                if (keywordsFactura.some(k => lowerMsg.includes(k)) || keywordsProyecto.some(k => lowerMsg.includes(k))) {
                     const customer = await perfex.getCustomerByPhone(from);
                     if (customer.found) {
-                        let fullResponse = `Hola ${customer.firstname || 'cliente'}! He verificado tu información:\n\n`;
+                        let fullResponse = `Hola ${customer.firstname || 'cliente'}! 🤖 He consultado directamente en el sistema:\n\n`;
                         
                         // Lógica de Facturas
-                        if (keywords.slice(0, 6).some(k => lowerMsg.includes(k))) {
+                        if (keywordsFactura.some(k => lowerMsg.includes(k))) {
                             const invoices = await perfex.getInvoices(customer.customerId);
-                            const pending = invoices.filter(inv => ['Por pagar', 'Vencida', 'Parcialmente pagada'].includes(inv.status_name));
+                            const invoicesArray = Array.isArray(invoices) ? invoices : [];
+                            const pending = invoicesArray.filter(inv => ['Por pagar', 'Vencida', 'Parcialmente pagada'].includes(inv.status_name));
                             
                             if (pending.length > 0) {
-                                fullResponse += `*Facturas:* Tienes ${pending.length} pendiente(s).\n` + 
-                                    pending.map(inv => `• ${inv.number}: $${inv.total} (${inv.status_name})`).join('\n');
+                                fullResponse += `*📄 FACTURAS PENDIENTES:*\n` + 
+                                    pending.map(inv => `• ${inv.number}: $${inv.total} (${inv.status_name})\n  🔗 Ver: ${inv.view_url}`).join('\n\n');
                             } else {
-                                fullResponse += `*Facturas:* No tienes pagos pendientes actualmente. ✅\n`;
+                                fullResponse += `*Facturas:* No registras pagos pendientes actualmente. ✅\n`;
                             }
                         }
 
                         // Lógica de Proyectos
-                        if (lowerMsg.includes('proyecto')) {
+                        if (keywordsProyecto.some(k => lowerMsg.includes(k))) {
                             const projects = await perfex.getProjects(customer.customerId);
-                            if (projects.length > 0) {
-                                fullResponse += `\n*Proyectos:* Tienes ${projects.length} proyecto(s) activo(s).\n` +
-                                    projects.map(p => `• ${p.name}`).join('\n');
+                            const projectsArray = Array.isArray(projects) ? projects : [];
+                            if (projectsArray.length > 0) {
+                                fullResponse += `\n*🏗️ PROYECTOS ACTIVOS:*\n` +
+                                    projectsArray.map(p => `• ${p.name} (Estado: ${p.status})`).join('\n');
                             } else {
                                 fullResponse += `\n*Proyectos:* No tienes proyectos asignados actualmente.`;
                             }
@@ -156,9 +159,9 @@ async function handlePluginRequest(req, res) {
                         await whatsapp.sendText(from, fullResponse);
                         
                         // Devolvemos una respuesta simple a la plataforma para que Gemini no se rompa
-                        return res.json({ status: "success", response: "Información enviada correctamente por WhatsApp." });
+                        return res.json({ status: "success", response: "He enviado la información de facturas/proyectos directamente al chat del cliente." });
                     }
-                    return res.json({ status: "success", response: "No pude identificarte en el sistema con este número. Por favor, indícame tu correo electrónico." });
+                    return res.json({ status: "success", response: "No encontré tu número en nuestro CRM. Por favor, indícame tu correo para buscarte." });
                 }
                 // Si no es una pregunta de factura, simplemente acusamos recibo como texto
                 // Retornamos un campo 'response' claro para que el motor de IA tenga contenido

@@ -28,7 +28,7 @@ class WhatsAppService {
         try {
             const response = await axios.post(url, form, {
                 headers: form.getHeaders(),
-                timeout: 15000 // 15 segundos para envíos de WhatsApp
+                timeout: 8000 // Reducido a 8s para evitar timeouts de plataforma
             });
             return response.data;
         } catch (error) {

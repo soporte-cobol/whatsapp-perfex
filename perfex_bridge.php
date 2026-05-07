@@ -165,7 +165,7 @@ switch ($action) {
         foreach ($rows as &$row) {
             $row['view_url'] = "https://portal.gmgroup.com.co/invoice/" . $row['id'] . "/" . $row['hash'];
         }
-        $response = $rows;
+        $response = is_array($rows) ? $rows : [];
         break;
 
     case 'get_projects':

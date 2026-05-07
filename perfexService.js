@@ -22,7 +22,7 @@ class PerfexService {
                 ...params,
                 token: this.apiToken // Duplicamos en params por si el server bloquea el header
             },
-            timeout: 10000 // Timeout de 10 segundos para no bloquear la IA
+            timeout: 7000 // Reducido a 7s para mayor estabilidad
         };
         if (data) config.data = data;
 
