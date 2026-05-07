@@ -78,7 +78,9 @@ app.post('/ai/plugin', authenticateWebhook, async (req, res) => {
                 const customerByVat = await perfex.getCustomerByVat(args.vat);
                 return res.json(customerByVat);
             case 'getInvoices':
-                const invoices = await perfex.getInvoices(args.customerId);
+                // Aseguramos que customerId sea un número
+                const invId = parseInt(args.customerId);
+                const invoices = await perfex.getInvoices(invId);
                 return res.json(invoices);
             case 'createTicket':
                 const ticket = await perfex.createTicket(args);

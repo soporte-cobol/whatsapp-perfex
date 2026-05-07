@@ -35,8 +35,8 @@ if ($mysqli->connect_error) {
 }
 
 $action = $_GET['action'] ?? '';
-// Sanitización básica de inputs de consulta
-$action = filter_var($action, FILTER_SANITIZE_STRING);
+// Sanitización básica de la acción
+$action = htmlspecialchars($action, ENT_QUOTES, 'UTF-8');
 $customer_id = isset($_GET['customer_id']) ? intval($_GET['customer_id']) : 0;
 $email = $_GET['email'] ?? '';
 $phone = $_GET['phone'] ?? '';

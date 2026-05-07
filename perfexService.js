@@ -16,7 +16,8 @@ class PerfexService {
             method,
             url: `${this.baseUrl}/perfex_bridge.php`,
             headers: this.headers,
-            params
+            params,
+            timeout: 10000 // Timeout de 10 segundos para no bloquear la IA
         };
         if (data) config.data = data;
 
