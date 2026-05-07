@@ -10,7 +10,7 @@ const axios = require('axios');
 class GeminiService {
     constructor(apiKey, model) {
         this.apiKey = String(apiKey || '').trim();
-        this.model = String(model || '').trim() || 'gemini-1.5-flash';
+        this.model = String(model || '').trim() || 'gemini-pro';
         this.baseUrl = 'https://generativelanguage.googleapis.com/v1beta';
     }
 
