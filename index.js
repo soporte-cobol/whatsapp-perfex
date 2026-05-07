@@ -13,48 +13,41 @@ const perfex = new PerfexService(process.env.PERFEX_BASE_URL, process.env.PERFEX
 const whatsapp = new WhatsAppService(process.env.WHATSAPP_API_SECRET, process.env.WHATSAPP_ACCOUNT_ID);
 const gemini = new GeminiService(process.env.GEMINI_API_KEY, "gemini-2.5-flash");
 
-// DETECTIVE DE RUTA
-app.use((req, res, next) => {
-    console.log(`📡 [${new Date().toLocaleTimeString()}] ${req.method} ${req.url}`);
-    next();
-});
-
 app.post('/ai/plugin', async (req, res) => {
-    console.log("📥 DATOS RECIBIDOS:", JSON.stringify(req.body));
-    
     try {
         const data = req.body.data || req.body;
         const msg = (data.message || "").trim();
         const from = String(data.phone || data.wid || "");
         const secret = req.body.secret || req.body.token || "";
 
-        // Verificación de secreto con log
-        if (secret !== process.env.WEBHOOK_API_KEY) {
-            console.warn(`❌ TOKEN INCORRECTO. Recibido: "${secret}", Esperado: "${process.env.WEBHOOK_API_KEY}"`);
-            // Por ahora dejamos pasar para ver si responde, pero avisamos
-        }
-
-        if (!msg) {
-            console.log("Empty message, ignoring.");
-            return res.json({ status: "success", stop: true });
-        }
+        if (secret !== process.env.WEBHOOK_API_KEY) return res.json({ status: "error" });
+        if (!msg) return res.json({ status: "success", stop: true });
 
         const cleanFrom = from.split('@')[0].replace(/\D/g, '');
+        if (from.includes('@g.us') || !cleanFrom) return res.json({ status: "success", stop: true });
+
+        console.log(`\n💬 Mensaje de ${cleanFrom}: "${msg}"`);
+
+        let customer = { found: false };
+
+        // 1. Identificación Profunda
+        const emailMatch = msg.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+        if (emailMatch) customer = await perfex.getCustomerByEmail(emailMatch[0]).catch(() => ({ found: false }));
         
-        if (from.includes('@g.us') || !cleanFrom) {
-            console.log(`⏭️ Ignorando grupo: ${from}`);
-            return res.json({ status: "success", stop: true });
+        if (!customer.found) {
+            const nitMatch = msg.match(/\d{9}-\d|\d{9}/);
+            if (nitMatch) customer = await perfex.getCustomerByVat(nitMatch[0]).catch(() => ({ found: false }));
         }
 
-        console.log(`💬 Procesando mensaje de ${cleanFrom}: "${msg}"`);
-
-        let customer = await perfex.getCustomerByPhone(cleanFrom).catch(() => ({ found: false }));
-        if (!customer.found && cleanFrom.length > 10) {
-            customer = await perfex.getCustomerByPhone(cleanFrom.slice(-10)).catch(() => ({ found: false }));
+        if (!customer.found) {
+            customer = await perfex.getCustomerByPhone(cleanFrom).catch(() => ({ found: false }));
+            if (!customer.found && cleanFrom.length > 10) {
+                customer = await perfex.getCustomerByPhone(cleanFrom.slice(-10)).catch(() => ({ found: false }));
+            }
         }
 
         if (customer.found) {
-            console.log(`✅ Cliente: ${customer.firstname}`);
+            console.log(`✅ IDENTIFICADO: ${customer.firstname}`);
             
             const results = await Promise.allSettled([
                 perfex.getInvoices(customer.customerId, 5),
@@ -70,49 +63,58 @@ app.post('/ai/plugin', async (req, res) => {
                 pending.forEach(i => rigidMsg += `\n• ${i.number}: $${i.total}\n  🔗 ${i.view_url}`);
             }
 
+            // IA Laura
             let aiMsg = null;
             if (gemini.isReady()) {
-                const fullPrompt = `${aiConfig.PRE_PROMPT}\n\nConocimiento: ${aiConfig.KNOWLEDGE_BASE}\n\nCliente: ${customer.firstname}\n\nPregunta: "${msg}"\n\n${aiConfig.POST_PROMPT}`;
+                const fullPrompt = `
+                ${aiConfig.PRE_PROMPT}
+                BASE DE CONOCIMIENTOS: ${aiConfig.KNOWLEDGE_BASE}
+                CLIENTE: ${customer.firstname} ${customer.lastname}
+                DATA CRM: ${rigidMsg}
+                PREGUNTA: "${msg}"
+                ${aiConfig.POST_PROMPT}
+                `;
                 aiMsg = await gemini.generateText(fullPrompt);
             }
 
             if (aiMsg) {
-                // Limpieza de tags de ticket antes de enviar
-                let cleanAiMsg = aiMsg.replace(/\[CREATE_TICKET:.*?\]/g, '').trim();
-                
+                // Procesar tickets
                 if (aiMsg.includes('[CREATE_TICKET:')) {
                     const match = aiMsg.match(/\[CREATE_TICKET:\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\]/);
                     if (match) {
                         const [_, priority, subject, summary] = match;
-                        console.log(`🎫 Ticket detectado: ${subject}`);
+                        console.log(`🎫 Ticket: ${subject}`);
                         await perfex.createTicket({
                             subject, message: summary, priority,
                             userid: customer.customerId, contactid: customer.contactId,
                             email: customer.email, name: customer.firstname + ' ' + customer.lastname
                         }).catch(e => console.error("Error ticket:", e.message));
+                        aiMsg = aiMsg.replace(/\[CREATE_TICKET:.*?\]/g, '').trim();
                     }
                 }
-                await whatsapp.sendText(cleanFrom, cleanAiMsg);
+                await whatsapp.sendText(cleanFrom, aiMsg);
             } else {
-                await whatsapp.sendText(cleanFrom, `¡Hola ${customer.firstname}! Soy Laura.`);
+                await whatsapp.sendText(cleanFrom, `¡Hola ${customer.firstname}! Soy Laura. ¿En qué te ayudo?`);
             }
             await whatsapp.sendText(cleanFrom, rigidMsg);
 
         } else {
-            console.log(`⚠️ No registrado: ${cleanFrom}`);
-            const fallback = gemini.isReady() ? await gemini.generateText(aiConfig.FALLBACK_PROMPT) : aiConfig.FALLBACK_PROMPT;
-            await whatsapp.sendText(cleanFrom, fallback || aiConfig.FALLBACK_PROMPT);
+            console.log(`⚠️ NO ENCONTRADO: ${cleanFrom}`);
+            // Fallback inteligente para captar leads
+            let aiFallback = aiConfig.FALLBACK_PROMPT;
+            if (gemini.isReady()) {
+                aiFallback = await gemini.generateText(`Eres Laura de GM Group. No encontramos al cliente con el número ${cleanFrom}. Pídele amablemente su correo o NIT para buscarlo en la base de datos de la agencia. Sé muy amable y entusiasta.`);
+            }
+            await whatsapp.sendText(cleanFrom, aiFallback || aiConfig.FALLBACK_PROMPT);
         }
 
         return res.json({ status: "success", stop: true });
 
     } catch (error) {
-        console.error(`💥 ERROR DETECTIVE:`, error);
-        return res.json({ status: "error", message: error.message });
+        console.error(`💥 Error:`, error.message);
+        return res.json({ status: "error" });
     }
 });
 
-app.post('/', (req, res) => res.redirect(307, '/ai/plugin'));
-
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`\n🕵️ MODO DETECTIVE ACTIVADO EN PUERTO ${PORT}`));
+app.listen(PORT, () => console.log(`\n🚀 LAURA (PRO 2.5) ONLINE EN PUERTO ${PORT}`));
