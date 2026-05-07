@@ -1,104 +1,115 @@
 require('dotenv').config();
 const express = require('express');
-const path = require('path');
-const fs = require('fs');
 const PerfexService = require('./perfexService');
 const WhatsAppService = require('./whatsappService');
 const GeminiService = require('./geminiService');
 
 const app = express();
-
-// Body Parsers (Importante tener ambos)
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Log Global de Peticiones (Radar)
+// Radar de peticiones
 app.use((req, res, next) => {
-    console.log(`📡 [${new Date().toLocaleTimeString()}] ${req.method} ${req.url} | IP: ${req.ip}`);
+    console.log(`📡 [${new Date().toLocaleTimeString()}] ${req.method} ${req.url}`);
     next();
 });
 
-// Inicialización
 const perfex = new PerfexService(process.env.PERFEX_BASE_URL, process.env.PERFEX_API_TOKEN);
 const whatsapp = new WhatsAppService(process.env.WHATSAPP_API_SECRET, process.env.WHATSAPP_ACCOUNT_ID);
-const gemini = new GeminiService(process.env.GEMINI_API_KEY, process.env.GEMINI_MODEL);
+const gemini = new GeminiService(process.env.GEMINI_API_KEY, "gemini-1.5-flash-latest");
 
 app.post('/ai/plugin', async (req, res) => {
     try {
-        const body = req.body;
-        console.log(`📩 PROCESANDO PLUGIN REQUEST...`);
-        
-        // Detección flexible de datos (Cobol a veces lo anida en 'data')
-        const data = body.data || body;
-        const msg = data.message || body.message || "";
-        const from = data.phone || data.wid || body.from || "";
-        const secret = body.secret || data.secret || "";
+        const data = req.body.data || req.body;
+        const msg = (data.message || "").trim();
+        const from = data.phone || data.wid || "";
+        const secret = req.body.secret || "";
 
-        if (secret !== process.env.WEBHOOK_API_KEY) {
-            console.log(`🚫 Bloqueado: Secret incorrecto (${secret})`);
-            return res.json({ status: "error", message: "Auth failed" });
-        }
-
-        if (!msg) {
-            console.log(`ℹ️ Mensaje vacío o Heartbeat detectado`);
-            return res.json({ status: "success", stop: true });
-        }
+        if (secret !== process.env.WEBHOOK_API_KEY) return res.json({ status: "error" });
+        if (!msg) return res.json({ status: "success", stop: true });
 
         const cleanFrom = String(from).split('@')[0].replace(/\D/g, '');
         console.log(`💬 Mensaje de ${cleanFrom}: "${msg}"`);
 
-        // Búsqueda en Perfex
-        console.log(`🔍 Buscando cliente...`);
-        let customer = await perfex.getCustomerByPhone(cleanFrom).catch(() => ({ found: false }));
-        
-        if (!customer.found && cleanFrom.length > 10) {
-            customer = await perfex.getCustomerByPhone(cleanFrom.slice(-10)).catch(() => ({ found: false }));
+        let customer = { found: false };
+
+        // 1. ¿ES UN CORREO ELECTRÓNICO?
+        const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+        const foundEmail = msg.match(emailRegex);
+
+        if (foundEmail) {
+            const email = foundEmail[0];
+            console.log(`📧 Detectado correo: ${email}. Buscando en Perfex...`);
+            customer = await perfex.getCustomerByEmail(email).catch(() => ({ found: false }));
+        }
+
+        // 2. SI NO SE ENCONTRÓ POR EMAIL, BUSCAR POR TELÉFONO
+        if (!customer.found) {
+            console.log(`🔍 Buscando por teléfono: ${cleanFrom}`);
+            customer = await perfex.getCustomerByPhone(cleanFrom).catch(() => ({ found: false }));
+            
+            if (!customer.found && cleanFrom.length > 10) {
+                const last10 = cleanFrom.slice(-10);
+                console.log(`🔍 Reintentando con últimos 10: ${last10}`);
+                customer = await perfex.getCustomerByPhone(last10).catch(() => ({ found: false }));
+            }
+            
+            // Intento final con el formato original (por si tiene el +)
+            if (!customer.found && from.includes('+')) {
+                console.log(`🔍 Intento final con formato original: ${from}`);
+                customer = await perfex.getCustomerByPhone(from).catch(() => ({ found: false }));
+            }
         }
 
         if (customer.found) {
-            console.log(`✅ Cliente encontrado: ${customer.firstname}`);
+            console.log(`✅ Cliente identificado: ${customer.firstname} ${customer.lastname || ''}`);
             
-            // Consultar facturas/proyectos
             const [invoices, projects] = await Promise.all([
                 perfex.getInvoices(customer.customerId, 5).catch(() => []),
                 perfex.getProjects(customer.customerId, 3).catch(() => [])
             ]);
 
-            let rigidData = `Facturas: ${invoices.length}, Proyectos: ${projects.length}`;
-            let rigidMsg = `*RESUMEN CRM:*\n`;
-            invoices.filter(i => i.status != 2).forEach(i => rigidMsg += `\n• ${i.number}: $${i.total}`);
-            if (invoices.length === 0) rigidMsg = "No tienes facturas pendientes.";
-
-            let aiMsg = "Hola! Soy tu asistente virtual.";
-            if (gemini.isReady()) {
-                aiMsg = await gemini.generateText(`Cliente: ${customer.firstname}. Contexto: ${rigidData}. Pregunta: ${msg}`).catch(() => aiMsg);
+            const pendingInvoices = invoices.filter(i => i.status != 2 && i.status != 4);
+            
+            let rigidMsg = `*DATOS DE TU CUENTA EN GM GROUP:*\n`;
+            if (pendingInvoices.length > 0) {
+                rigidMsg += `\n📄 *Facturas Pendientes:*`;
+                pendingInvoices.forEach(i => rigidMsg += `\n• ${i.number}: $${i.total}\n  🔗 ${i.view_url}`);
+            } else {
+                rigidMsg += `\n✅ No tienes facturas pendientes.`;
             }
 
-            console.log(`📤 Enviando respuestas por API...`);
-            await whatsapp.sendText(cleanFrom, aiMsg).catch(e => console.log(`Error API IA: ${e.message}`));
-            await whatsapp.sendText(cleanFrom, rigidMsg).catch(e => console.log(`Error API CRM: ${e.message}`));
+            if (projects.length > 0) {
+                rigidMsg += `\n\n🏗️ *Tus Proyectos:*`;
+                projects.forEach(p => rigidMsg += `\n• ${p.name} (${p.status_name || p.status})`);
+            }
+
+            let aiMsg = "Hola! Aquí tienes la información de tu cuenta.";
+            if (gemini.isReady()) {
+                const context = `Cliente: ${customer.firstname}. Info CRM: ${rigidMsg}`;
+                aiMsg = await gemini.generateText(`${context}\n\nPregunta: ${msg}\nResponde amable.`).catch(() => aiMsg);
+            }
+
+            await whatsapp.sendText(cleanFrom, aiMsg).catch(() => {});
+            await whatsapp.sendText(cleanFrom, rigidMsg).catch(() => {});
 
         } else {
-            console.log(`⚠️ Cliente no encontrado. Enviando fallback.`);
-            const fallback = "Hola! No encuentro tu número registrado. ¿Podrías indicarme tu correo?";
-            await whatsapp.sendText(cleanFrom, fallback).catch(e => console.log(`Error API Fallback: ${e.message}`));
+            console.log(`⚠️ No se encontró al cliente.`);
+            const fallback = "Lo siento, no encuentro tu número ni tu correo en nuestro sistema. ¿Podrías confirmarme tu correo electrónico o el NIT de tu empresa para ayudarte mejor?";
+            await whatsapp.sendText(cleanFrom, fallback).catch(() => {});
         }
 
-        // Siempre responder 200 OK al panel
         return res.json({ status: "success", response: "", final: true, stop: true });
 
     } catch (error) {
-        console.error(`💥 Error interno:`, error.message);
-        return res.json({ status: "error", response: "Error" });
+        console.error(`💥 Error:`, error.message);
+        return res.json({ status: "error" });
     }
 });
 
-// Alias para ruta raíz
 app.post('/', (req, res) => res.redirect(307, '/ai/plugin'));
-app.get('/', (req, res) => res.send('Bot Online 🚀'));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`\n🚀 SERVIDOR RADAR ACTIVO EN PUERTO ${PORT}`);
-    console.log(`🔑 WEBHOOK SECRET: ${process.env.WEBHOOK_API_KEY.substring(0, 5)}...`);
+    console.log(`\n🚀 SERVIDOR ACTUALIZADO Y LISTO`);
 });
