@@ -73,10 +73,20 @@ const authenticateWebhook = (req, res, next) => {
         return next();
     }
 
-    // Log detallado para identificar qué secreto está enviando Cobol realmente
-    logger.warn(`🚫 Acceso denegado. Recibido Secret: ${bodySecret ? bodySecret.substring(0, 6) + '...' : 'N/A'}`, { ip: req.ip });
+    // Log detallado para identificar qué secreto está enviando Cobol realmente en combined.log
+    logger.error(`🚫 Acceso denegado. IP: ${req.ip}. Header API-KEY: ${apiKey ? 'SI' : 'NO'}. Body Secret: ${bodySecret ? bodySecret.substring(0, 6) + '...' : 'N/A'}`);
     return res.status(401).json({ error: 'No autorizado.' });
 };
+
+/**
+ * Capturador de peticiones a la raíz (/) para evitar 404 si la URL en Cobol está incompleta
+ */
+app.post('/', (req, res) => {
+    logger.warn(`⚠️ Recibida petición en la raíz (/). Redirigiendo internamente. Revisa la URL en el panel de Cobol: debe ser /ai/plugin`);
+    // Redirigimos manualmente al dispatcher
+    req.url = '/ai/plugin';
+    app.handle(req, res);
+});
 
 /**
  * Endpoint Central (Dispatcher)
