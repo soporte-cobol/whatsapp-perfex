@@ -47,8 +47,8 @@ if (empty($auth_header) && isset($_GET['token'])) {
     $auth_header = $_GET['token'];
 }
 
-// Log para depuración (revisar error_log de tu hosting PHP si el 401 persiste)
-// error_log("Bridge Auth attempt. Recibido: [" . $auth_header . "] Esperado: [" . $secret_key . "]");
+// DESCOMENTAR PARA DEPURAR: Esto aparecerá en el "error_log" de tu cPanel del CRM
+error_log("DEBUG BRIDGE: Recibido [" . ($auth_header ?: 'VACIO') . "] | Esperado [" . $secret_key . "]");
 
 // Validar el token (quitando espacios en blanco por seguridad)
 if (empty($auth_header) || trim((string)$auth_header) !== trim((string)$secret_key)) {

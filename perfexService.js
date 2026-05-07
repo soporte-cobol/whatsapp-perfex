@@ -9,7 +9,6 @@ class PerfexService {
         this.headers = {
             'Authorization': apiToken
         };
-        console.log(`[PerfexService] Initialized with token starting: ${apiToken.substring(0, 8)}...`);
     }
 
     async _request(method, params = {}, data = null) {
@@ -19,11 +18,14 @@ class PerfexService {
             headers: this.headers,
             params: {
                 ...params,
-                token: this.headers.Authorization // Enviamos el token también aquí por seguridad
+                token: this.headers.Authorization
             },
             timeout: 10000 // Timeout de 10 segundos para no bloquear la IA
         };
         if (data) config.data = data;
+
+        // Debug log para ver la URL final (sin token completo por seguridad)
+        const debugUrl = `${config.url}?action=${params.action}&token=${this.headers.Authorization.substring(0, 4)}...`;
 
         try {
             const response = await axios(config);
