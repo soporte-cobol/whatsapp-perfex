@@ -42,6 +42,11 @@ if (isset($_SERVER['HTTP_AUTHORIZATION'])) {
     $auth_header = $headers['Authorization'] ?? $headers['authorization'] ?? $auth_header;
 }
 
+// Fallback: Obtener el token desde la URL si Apache eliminó el encabezado Authorization
+if (empty($auth_header) && isset($_GET['token'])) {
+    $auth_header = $_GET['token'];
+}
+
 // Validar el token (quitando espacios en blanco por seguridad)
 if (empty($auth_header) || trim((string)$auth_header) !== trim((string)$secret_key)) {
     http_response_code(401);

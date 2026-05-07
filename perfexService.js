@@ -16,7 +16,10 @@ class PerfexService {
             method,
             url: `${this.baseUrl}/perfex_bridge.php`,
             headers: this.headers,
-            params,
+            params: {
+                ...params,
+                token: this.headers.Authorization // Enviamos el token también aquí por seguridad
+            },
             timeout: 10000 // Timeout de 10 segundos para no bloquear la IA
         };
         if (data) config.data = data;
@@ -39,6 +42,9 @@ class PerfexService {
             const url = `${this.baseUrl}/perfex_bridge.php`;
             const response = await axios.get(url, { 
                 headers: this.headers,
+                params: {
+                    token: this.headers.Authorization
+                },
                 timeout: 5000 
             });
             return response.status === 200 || response.status === 401;
