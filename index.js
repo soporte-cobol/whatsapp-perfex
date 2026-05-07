@@ -106,13 +106,13 @@ async function handlePluginRequest(req, res) {
 
         if (msg && from) {
             logger.info(`💬 Evento de mensaje recibido de ${from}: ${msg.substring(0, 20)}...`);
-            // Respondemos con 204 No Content para evitar que la plataforma 
-            // intente procesar un JSON como respuesta de herramienta para Gemini.
-            return res.status(204).send();
+            // Devolvemos un JSON para que la plataforma no interprete la respuesta como "vacía" para Gemini.
+            // Esto soluciona el error "Each Content should have at least one part".
+            return res.status(200).json({ status: 'received', message: 'Event processed successfully' });
         }
         
-        logger.info('ℹ️ Petición sin acción detectable o Heartbeat:', { body: req.body });
-        return res.status(204).send();
+        logger.info('ℹ️ Heartbeat o petición sin acción detectable');
+        return res.status(200).json({ status: 'received', message: 'Heartbeat or no action' });
     }
 
     // Log de ejecución de Plugin
