@@ -106,13 +106,13 @@ async function handlePluginRequest(req, res) {
 
         if (msg && from) {
             logger.info(`💬 Evento de mensaje recibido de ${from}: ${msg.substring(0, 20)}...`);
-            // Devolvemos un JSON para que la plataforma no interprete la respuesta como "vacía" para Gemini.
-            // Esto soluciona el error "Each Content should have at least one part".
-            return res.status(200).json({ status: 'received', message: 'Event processed successfully' });
+            // IMPORTANTE: Devolvemos un objeto vacío. Esto evita que la plataforma de Cobol 
+            // intente inyectar nuestra respuesta técnica dentro del prompt de Gemini.
+            return res.status(200).json({});
         }
         
-        logger.info('ℹ️ Heartbeat o petición sin acción detectable');
-        return res.status(200).json({ status: 'received', message: 'Heartbeat or no action' });
+        logger.info('ℹ️ Petición sin acción detectable o Heartbeat');
+        return res.status(200).json({}); // Siempre devolvemos un objeto vacío para estos casos
     }
 
     // Log de ejecución de Plugin
