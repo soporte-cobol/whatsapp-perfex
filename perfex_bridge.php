@@ -30,9 +30,20 @@ $secret_key = "PON_AQUI_EL_MISMO_TOKEN_QUE_EN_TU_DOT_ENV"; // <--- Cambia esto
 
 header('Content-Type: application/json');
 
-// Compatibilidad mejorada para obtener el Token de Autorización
-$auth_header = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
-if (empty($auth_header) || $auth_header !== $secret_key) {
+// Obtener el token de autorización de forma más robusta para diversos entornos
+$auth_header = '';
+
+if (isset($_SERVER['HTTP_AUTHORIZATION'])) {
+    $auth_header = $_SERVER['HTTP_AUTHORIZATION'];
+} elseif (isset($_SERVER['REDIRECT_HTTP_AUTHORIZATION'])) {
+    $auth_header = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'];
+} elseif (function_exists('apache_request_headers')) {
+    $headers = apache_request_headers();
+    $auth_header = $headers['Authorization'] ?? $headers['authorization'] ?? $auth_header;
+}
+
+// Validar el token (quitando espacios en blanco por seguridad)
+if (empty($auth_header) || trim((string)$auth_header) !== trim((string)$secret_key)) {
     http_response_code(401);
     echo json_encode(['error' => 'No autorizado']);
     exit;

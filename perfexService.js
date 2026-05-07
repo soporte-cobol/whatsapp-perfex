@@ -5,7 +5,7 @@ const axios = require('axios');
 
 class PerfexService {
     constructor(baseUrl, apiToken) {
-        this.baseUrl = baseUrl;
+        this.baseUrl = baseUrl ? baseUrl.replace(/\/+$/, '') : '';
         this.headers = {
             'Authorization': apiToken
         };
@@ -36,12 +36,20 @@ class PerfexService {
 
     async checkHealth() {
         try {
-            // Si el bridge responde, está vivo. El 401 significa que el token es incorrecto pero el archivo existe.
-            const response = await axios.get(`${this.baseUrl}/perfex_bridge.php`, { headers: this.headers });
-            return response.status === 200;
+            const url = `${this.baseUrl}/perfex_bridge.php`;
+            const response = await axios.get(url, { 
+                headers: this.headers,
+                timeout: 5000 
+            });
+            return response.status === 200 || response.status === 401;
         } catch (error) {
-            // Si el servidor responde con 401, el bridge está cargando correctamente pero el token no coincide
-            return error.response && (error.response.status === 200 || error.response.status === 401);
+            if (error.response) {
+                console.log(`📡 Bridge (${this.baseUrl}) responde con status: ${error.response.status}`);
+                return error.response.status === 200 || error.response.status === 401;
+            } else {
+                console.error(`❌ Error de red en ${this.baseUrl}: ${error.message}`);
+                return false;
+            }
         }
     }
 
