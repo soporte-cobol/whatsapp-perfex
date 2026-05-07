@@ -116,59 +116,56 @@ async function handlePluginRequest(req, res) {
         // 2. Si NO hay acción detectable, es un mensaje directo o heartbeat
         if (!action) {
             // Intentar extraer mensaje y emisor de varias estructuras posibles
-            const msg = (req.body.data && req.body.data.message) || req.body.message || "";
+            const msg = (req.body.data && req.body.data.message) || req.body.message || req.body.text || "";
             const from = (req.body.data && (req.body.data.phone || req.body.data.wid)) || req.body.from;
 
             if (msg && from) {
-                const cleanFrom = String(from).replace(/\D/g, '');
-                logger.info(`💬 Mensaje recibido de ${cleanFrom}: "${msg.substring(0, 30)}..."`);
+                const cleanFrom = String(from).split('@')[0].replace(/\D/g, '');
+                logger.info(`💬 Mensaje recibido de ${cleanFrom}: "${msg.substring(0, 40)}..."`);
+                
                 const lowerMsg = msg.toLowerCase();
                 const keywordsFactura = ['factura', 'debo', 'pendiente', 'pagos', 'pagar', 'saldo'];
                 const keywordsProyecto = ['proyecto', 'proyectos', 'obra', 'tarea'];
                 
                 if (keywordsFactura.some(k => lowerMsg.includes(k)) || keywordsProyecto.some(k => lowerMsg.includes(k))) {
-                    const customer = await perfex.getCustomerByPhone(cleanFrom);
+                    const customer = await perfex.getCustomerByPhone(cleanFrom).catch(() => ({ found: false }));
+                    
                     if (customer.found) {
-                        let invoices = [];
-                        let projects = [];
-                        try {
-                            // Consulta Rígida: Ejecutamos facturas y proyectos en paralelo para ganar velocidad
-                            const results = await Promise.all([
-                                keywordsFactura.some(k => lowerMsg.includes(k)) ? perfex.getInvoices(customer.customerId) : Promise.resolve([]),
-                                keywordsProyecto.some(k => lowerMsg.includes(k)) ? perfex.getProjects(customer.customerId) : Promise.resolve([])
-                            ]);
-                            invoices = Array.isArray(results[0]) ? results[0] : [];
-                            projects = Array.isArray(results[1]) ? results[1] : [];
-                        } catch (e) {
-                            logger.error(`❌ Error en consulta rígida a DB: ${e.message}`);
-                        }
+                        // CONSULTA RÍGIDA: Procesamos todo sin que la IA intervenga en la lógica
+                        const [invoices, projects] = await Promise.all([
+                            keywordsFactura.some(k => lowerMsg.includes(k)) ? perfex.getInvoices(customer.customerId).catch(() => []) : Promise.resolve([]),
+                            keywordsProyecto.some(k => lowerMsg.includes(k)) ? perfex.getProjects(customer.customerId).catch(() => []) : Promise.resolve([])
+                        ]);
 
-                        let fullResponse = `Hola ${customer.firstname || 'cliente'}! 🤖 He consultado tu información:\n\n`;
+                        let fullResponse = `Hola ${customer.firstname || 'cliente'}! 🤖\n`;
                         
                         if (Array.isArray(invoices) && invoices.length > 0) {
                             const pending = invoices.filter(inv => ['Por pagar', 'Vencida', 'Parcialmente pagada'].includes(inv.status_name));
                             if (pending.length > 0) {
-                                fullResponse += `*📄 FACTURAS PENDIENTES:*\n` + 
-                                    pending.map(inv => `• ${inv.number}: $${inv.total} (${inv.status_name})\n  🔗 Ver: ${inv.view_url}`).join('\n\n') + `\n\n`;
-                            } else if (keywordsFactura.some(k => lowerMsg.includes(k))) {
-                                fullResponse += `*Facturas:* No registras pagos pendientes actualmente. ✅\n\n`;
+                                fullResponse += `\n*📄 FACTURAS PENDIENTES:*\n` + 
+                                    pending.map(inv => `• ${inv.number}: $${inv.total} (${inv.status_name})\n  🔗 Pagar: ${inv.view_url}`).join('\n\n') + `\n`;
+                            } else {
+                                fullResponse += `\n*Facturas:* No tienes facturas pendientes de pago. ✅\n`;
                             }
                         }
 
                         if (Array.isArray(projects) && projects.length > 0) {
-                            fullResponse += `*🏗️ PROYECTOS ACTIVOS:*\n` + 
-                                projects.map(p => `• ${p.name} (Estado: ${p.status})`).join('\n') + `\n`;
-                        } else if (keywordsProyecto.some(k => lowerMsg.includes(k))) {
-                            fullResponse += `*Proyectos:* No tienes proyectos asignados en este momento.\n`;
+                            fullResponse += `\n*🏗️ PROYECTOS ACTIVOS:*\n` + 
+                                projects.map(p => `• ${p.name} (Estado: ${p.status})`).join('\n');
+                        }
+
+                        if (fullResponse.length < 50) {
+                            fullResponse += "\nNo encontré información pendiente en tu cuenta actualmente.";
                         }
 
                         // Enviamos la respuesta rígida directamente al usuario
                         await whatsapp.sendText(cleanFrom, fullResponse);
                         
-                        // Devolvemos el texto bruto a la plataforma para que Gemini tenga contenido y no falle
-                        return res.json({ status: "success", response: fullResponse, message: fullResponse, output: fullResponse, final: true });
+                        // Devolvemos respuesta corta a Cobol para que la IA no repita el mensaje
+                        const ack = "Consulta finalizada y enviada por WhatsApp.";
+                        return res.json({ status: "success", response: ack, message: ack, output: ack, final: true });
                     }
-                    const notFoundMsg = "Lo siento, no pude encontrar tu número registrado en nuestro sistema. ¿Podrías indicarme tu correo electrónico para buscarte?";
+                    const notFoundMsg = "Lo siento, no pude encontrar tu número en nuestro sistema. ¿Me podrías dar tu correo electrónico para buscarte mejor?";
                     return res.json({ status: "success", response: notFoundMsg, message: notFoundMsg, output: notFoundMsg });
                 }
                 // Si no es una pregunta de factura, simplemente acusamos recibo como texto
@@ -274,16 +271,11 @@ app.use((err, req, res, next) => {
     res.status(500).json({ error: 'Error interno en el servidor de IA', details: err.message });
 });
 
-const PORT = process.env.PORT || 3000;
-
 // Añadir un pequeño retraso antes de iniciar el servidor para mitigar EADDRINUSE en reinicios
 setTimeout(() => {
+    const PORT = process.env.PORT || 3000;
     const server = app.listen(PORT, () => {
-        const waSecret = (process.env.WHATSAPP_API_SECRET || '').trim().substring(0, 6);
-        const webKey = (process.env.WEBHOOK_API_KEY || '').trim().substring(0, 6);
-        
-        process.stdout.write(`🚀 Servidor listo en puerto ${PORT}\n`);
-        process.stdout.write(`🔑 WA: ${waSecret}... | WEB: ${webKey}...\n`);
+        process.stdout.write(`\n🚀 SERVIDOR LISTO EN PUERTO ${PORT}\n`);
     });
 
     server.on('error', (err) => {

@@ -96,7 +96,7 @@ switch ($action) {
             $response = ['found' => false, 'error' => 'Teléfono vacío']; 
             break; 
         }
-        $likePhone = "%" . $searchNumber; // Buscamos que el número termine en estos dígitos
+        $likePhone = "%" . $mysqli->real_escape_string($searchNumber); // Buscamos que el número termine en estos dígitos
         
         $stmt = $mysqli->prepare("
             SELECT c.userid as customerId, c.id as contactId, c.firstname, c.lastname, cl.company 
