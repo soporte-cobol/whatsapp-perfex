@@ -162,18 +162,18 @@ async function handlePluginRequest(req, res) {
                         
                         // Devolvemos una respuesta simple a la plataforma para que Gemini no se rompa
                         const successMsg = "He enviado la información de facturas/proyectos directamente al chat del cliente.";
-                        return res.json({ status: "success", message: successMsg }); // No 'response' ni 'output' para evitar que Gemini lo procese
+                        return res.json({ status: "success", message: successMsg, response: successMsg, output: successMsg });
                     }
                     const notFoundMsg = "No encontré tu número en nuestro CRM. Por favor, indícame tu correo para buscarte.";
-                    return res.json({ status: "success", message: notFoundMsg }); // No 'response' ni 'output'
+                    return res.json({ status: "success", message: notFoundMsg, response: notFoundMsg, output: notFoundMsg });
                 }
                 // Si no es una pregunta de factura, simplemente acusamos recibo como texto
                 // Retornamos un campo 'response' claro para que el motor de IA tenga contenido
                 const welcomeMsg = "Mensaje recibido. ¿Deseas consultar algo sobre tus facturas o proyectos?";
-                return res.json({ status: "success", message: welcomeMsg }); // No 'response' ni 'output'
+                return res.json({ status: "success", message: welcomeMsg, response: welcomeMsg, output: welcomeMsg });
             }
             
-            return res.json({ status: "success", message: "Heartbeat processed" }); // No 'response' ni 'output'
+            return res.json({ status: "success", message: "Heartbeat processed", response: "Heartbeat processed", output: "Heartbeat processed" });
         }
 
         logger.info(`🤖 IA llamando a función: ${action}`, { args });
@@ -205,13 +205,16 @@ async function handlePluginRequest(req, res) {
             case 'getProposals':
                 const cidProp = parseInt(args.customerId || args.id || args.customer_id);
                 const proposals = cidProp ? await perfex.getProposals(cidProp) : [];
-                return res.json({ proposals });
+                const propMsg = `Encontradas ${proposals.length} propuestas.`;
+                return res.json({ status: "success", response: propMsg, message: propMsg, output: propMsg, proposals });
             case 'createContact':
                 const newContact = await perfex.createContact(args);
-                return res.json(newContact);
+                const contactMsg = newContact.success ? "Contacto creado exitosamente." : "Error al crear contacto.";
+                return res.json({ ...newContact, response: contactMsg, message: contactMsg, output: contactMsg });
             case 'getSupportTickets':
                 const tickets = args.email ? await perfex.getSupportTickets(args.email) : [];
-                return res.json({ tickets });
+                const tickMsg = `Encontrados ${tickets.length} tickets.`;
+                return res.json({ status: "success", response: tickMsg, message: tickMsg, output: tickMsg, tickets });
             case 'getTime':
             case 'get_time':
                 const timezone = args.timezone || "America/Bogota";

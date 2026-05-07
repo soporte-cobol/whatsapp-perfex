@@ -175,28 +175,32 @@ switch ($action) {
         $stmt = $mysqli->prepare("SELECT id, name, start_date, deadline, status FROM tblprojects WHERE clientid = ?");
         $stmt->bind_param("i", $customer_id);
         $stmt->execute();
-        $response = is_array($stmt->get_result()) ? $stmt->get_result()->fetch_all(MYSQLI_ASSOC) : [];
+        $result = $stmt->get_result();
+        $response = $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
         break;
 
     case 'get_tickets':
         $stmt = $mysqli->prepare("SELECT ticketid, subject, message, status, date FROM tbltickets WHERE email = ?");
         $stmt->bind_param("s", $email);
         $stmt->execute();
-        $response = is_array($stmt->get_result()) ? $stmt->get_result()->fetch_all(MYSQLI_ASSOC) : [];
+        $result = $stmt->get_result();
+        $response = $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
         break;
 
     case 'get_estimates':
         $stmt = $mysqli->prepare("SELECT id, number, total, date, expirydate, status FROM tblestimates WHERE clientid = ?");
         $stmt->bind_param("i", $customer_id);
         $stmt->execute();
-        $response = is_array($stmt->get_result()) ? $stmt->get_result()->fetch_all(MYSQLI_ASSOC) : [];
+        $result = $stmt->get_result();
+        $response = $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
         break;
 
     case 'get_proposals':
         $stmt = $mysqli->prepare("SELECT id, subject, total, date, open_till, status FROM tblproposals WHERE rel_id = ? AND rel_type = 'customer'");
         $stmt->bind_param("i", $customer_id);
         $stmt->execute();
-        $response = is_array($stmt->get_result()) ? $stmt->get_result()->fetch_all(MYSQLI_ASSOC) : [];
+        $result = $stmt->get_result();
+        $response = $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
         break;
 
     case 'create_ticket':
