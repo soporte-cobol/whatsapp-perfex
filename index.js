@@ -101,6 +101,7 @@ app.post('/ai/plugin', authenticateWebhook, async (req, res) => {
                 return res.json(customer);
             case 'identifyByEmail':
                 const customerByEmail = await perfex.getCustomerByEmail(args.email);
+                logger.info(`CRM response for email ${args.email}:`, customerByEmail);
                 if (!customerByEmail.found) {
                     logger.info(`🔍 Cliente no encontrado por email: ${args.email}`);
                 }
@@ -111,6 +112,7 @@ app.post('/ai/plugin', authenticateWebhook, async (req, res) => {
             case 'getInvoices':
                 if (!args.customerId) return res.status(400).json({ error: "Falta customerId" });
                 const invoices = await perfex.getInvoices(parseInt(args.customerId));
+                logger.info(`CRM found ${invoices.length} invoices for ID ${args.customerId}`);
                 return res.json(invoices);
             case 'getProjects':
                 if (!args.customerId) return res.status(400).json({ error: "Falta customerId" });

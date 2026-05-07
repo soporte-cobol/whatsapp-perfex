@@ -79,7 +79,7 @@ switch ($action) {
         // Si el número es largo (ej: 12 dígitos como 573001234567), 
         // extraemos los últimos 10 para evitar problemas con el prefijo internacional
         $searchNumber = (strlen($cleanPhone) >= 10) ? substr($cleanPhone, -10) : $cleanPhone;
-        
+        if (empty($searchNumber)) { $response = ['found' => false, 'error' => 'Teléfono vacío']; break; }
         $likePhone = "%" . $searchNumber . "%";
         
         $stmt = $mysqli->prepare("
@@ -94,12 +94,13 @@ switch ($action) {
         break;
 
     case 'get_customer_by_email':
+        $cleanEmail = strtolower(trim($email));
         $stmt = $mysqli->prepare("
             SELECT c.userid as customerId, c.id as contactId, c.firstname, c.lastname, cl.company 
             FROM tblcontacts c 
             JOIN tblclients cl ON c.userid = cl.userid 
-            WHERE c.email = ? ORDER BY c.is_primary DESC, c.id DESC LIMIT 1");
-        $stmt->bind_param("s", $email);
+            WHERE LOWER(c.email) = LOWER(?) ORDER BY c.is_primary DESC, c.id DESC LIMIT 1");
+        $stmt->bind_param("s", $cleanEmail);
         $stmt->execute();
         $result = $stmt->get_result()->fetch_assoc();
         $response = $result ? array_merge($result, ['found' => true]) : ['found' => false, 'error' => 'Cliente no encontrado'];
