@@ -47,11 +47,16 @@ if (empty($auth_header) && isset($_GET['token'])) {
     $auth_header = $_GET['token'];
 }
 
+// Limpieza: Eliminar prefijo "Bearer " si existe y quitar espacios
+$auth_header = trim((string)$auth_header);
+if (stripos($auth_header, 'Bearer ') === 0) {
+    $auth_header = trim(substr($auth_header, 7));
+}
+
 // DESCOMENTAR PARA DEPURAR: Esto aparecerá en el "error_log" de tu cPanel del CRM
 error_log("DEBUG BRIDGE: Recibido [" . ($auth_header ?: 'VACIO') . "] | Esperado [" . $secret_key . "]");
 
-// Validar el token (quitando espacios en blanco por seguridad)
-if (empty($auth_header) || trim((string)$auth_header) !== trim((string)$secret_key)) {
+if (empty($auth_header) || $auth_header !== trim((string)$secret_key)) {
     http_response_code(401);
     echo json_encode(['error' => 'No autorizado']);
     exit;

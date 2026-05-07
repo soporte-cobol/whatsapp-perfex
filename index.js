@@ -123,30 +123,37 @@ async function handlePluginRequest(req, res) {
                 const lowerMsg = msg.toLowerCase();
                 const keywords = ['factura', 'debo', 'pendiente', 'pagos', 'pagar', 'saldo'];
                 
-                // CORRECCIÓN: Búsqueda correcta de palabras clave
                 if (keywords.some(k => lowerMsg.includes(k))) {
                     const customer = await perfex.getCustomerByPhone(from);
                     if (customer.found) {
                         const invoices = await perfex.getInvoices(customer.customerId);
-                        
-                        // Lógica de "Doble Mensaje": Enviamos los datos brutos directo al WhatsApp
-                        let rawData = `📊 *ESTADO DE CUENTA - ${customer.company}*\n\n`;
+                        // Construir un resumen natural del estado de las facturas
+                        let summary = `Hola ${customer.firstname || 'cliente'}! `;
                         if (invoices.length > 0) {
-                            rawData += invoices.map(inv => `- Factura ${inv.number}: $${inv.total} (${inv.status_name})\n🔗 Ver: ${inv.view_url}`).join('\n\n');
+                            const pending = invoices.filter(inv => inv.status_name === 'Por pagar' || inv.status_name === 'Vencida');
+                            if (pending.length > 0) {
+                                summary += `Tienes ${pending.length} factura(s) pendiente(s). Te las envío en un momento.`;
+                                // Enviar las facturas como un mensaje separado
+                                const invoiceDetails = pending.map(inv => `*Factura ${inv.number}*: $${inv.total} (${inv.status_name}). Ver: ${inv.view_url}`).join('\n');
+                                await whatsapp.sendText(from, summary + '\n' + invoiceDetails);
+                            } else {
+                                summary += `No tienes facturas pendientes de pago.`;
+                                await whatsapp.sendText(from, summary);
+                            }
                         } else {
-                            rawData += "No registras facturas en el sistema.";
+                            summary += `No encontré facturas registradas para tu cuenta.`;
+                            await whatsapp.sendText(from, summary);
                         }
-                        
-                        await whatsapp.sendText(from, rawData).catch(e => logger.error("Error envío directo:", e.message));
-
-                        // Respondemos a Gemini con TEXTO para que no se rompa
-                        return res.json({ text: "He enviado los detalles de tus facturas directamente a este chat. ¿Hay algo más en lo que pueda ayudarte?" });
+                        // Devolvemos una respuesta simple a la plataforma para que Gemini no se rompa
+                        return res.json({ status: "success", message: "Información de facturas enviada directamente." });
                     }
+                    return res.json({ status: "success", message: "No pude identificarte para buscar facturas. Por favor, dime tu correo electrónico." });
                 }
-                // Si no hay intención clara, devolvemos un texto neutro para Gemini
-                return res.json({ text: "Recibido. ¿En qué puedo ayudarte con respecto a tus viajes o facturación?" });
+                // Si no es una pregunta de factura, simplemente acusamos recibo como texto
+                return res.json({ status: "success", message: `Mensaje recibido: "${msg.substring(0, 50)}..."` });
             }
-            return res.json({ status: "online", text: "Servidor operativo." });
+            
+            return res.json({ status: "success", message: "Heartbeat processed" });
         }
 
         logger.info(`🤖 IA llamando a función: ${action}`, { args });
@@ -199,11 +206,8 @@ async function handlePluginRequest(req, res) {
                 return res.status(200).json({ error: true, message: `La función ${action} no está implementada.` });
         }
     } catch (error) {
-        logger.error(`❌ Fallo en Dispatcher: ${error.message}`);
-        // Siempre devolver un campo 'text' para que Gemini no lance el error "Each Content should have at least one part"
-        res.status(200).json({ 
-            text: "Lo siento, tuve un problema al conectarme con el sistema administrativo. Por favor, intenta de nuevo en unos minutos o proporciona tu correo." 
-        });
+        logger.error(`❌ Fallo crítico en Dispatcher: ${error.message}`, { stack: error.stack });
+        res.status(200).json({ error: true, message: `Error CRM: ${error.message}` });
     }
 }
 
@@ -237,7 +241,6 @@ app.listen(PORT, () => {
     // Logs de verificación al arrancar para asegurar que el .env cargó bien
     const waSecret = (process.env.WHATSAPP_API_SECRET || 'N/A').trim().substring(0, 8);
     const webKey = (process.env.WEBHOOK_API_KEY || 'N/A').trim().substring(0, 8);
-    const pfxToken = (process.env.PERFEX_API_TOKEN || 'N/A').trim().substring(0, 8);
-    logger.info(`🔑 Tokens -> WA: "${waSecret}..." | Webhook: "${webKey}..." | Perfex: "${pfxToken}..."`);
+    logger.info(`🔑 WhatsApp API Secret: "${waSecret}..." | Webhook Key: "${webKey}..."`);
     logger.info(`🔗 Endpoints listos para configurar en el panel de Cobol`);
 });

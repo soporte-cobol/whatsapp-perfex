@@ -25,7 +25,8 @@ class PerfexService {
         if (data) config.data = data;
 
         // Debug log para ver la URL final (sin token completo por seguridad)
-        const debugUrl = `${config.url}?action=${params.action}&token=${this.headers.Authorization.substring(0, 4)}...`;
+        const debugToken = (this.headers.Authorization || '').substring(0, 6);
+        console.log(`📡 Llamando a Perfex: ${params.action || method} | Token starts with: ${debugToken}`);
 
         try {
             const response = await axios(config);
