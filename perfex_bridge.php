@@ -77,6 +77,7 @@ $action = $_GET['action'] ?? '';
 // Sanitización básica de la acción
 $action = htmlspecialchars($action, ENT_QUOTES, 'UTF-8');
 $customer_id = isset($_GET['customer_id']) ? intval($_GET['customer_id']) : 0;
+$limit = isset($_GET['limit']) ? intval($_GET['limit']) : 0;
 $email = $_GET['email'] ?? '';
 $phone = $_GET['phone'] ?? '';
 $vat = $_GET['vat'] ?? '';
@@ -161,7 +162,7 @@ switch ($action) {
                 WHEN status = 6 THEN 'Borrador'
                 ELSE 'Desconocido'
             END as status_name
-            FROM tblinvoices WHERE clientid = ? ORDER BY date DESC");
+            FROM tblinvoices WHERE clientid = ? ORDER BY date DESC" . ($limit > 0 ? " LIMIT $limit" : ""));
         $stmt->bind_param("i", $customer_id);
         $stmt->execute();
         $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);

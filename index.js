@@ -150,7 +150,7 @@ async function handlePluginRequest(req, res) {
                     if (customer.found) {
                         await sendDebug(`✅ Identificado: ${customer.firstname}. Consultando facturas/proyectos...`);
                         const [invoices, projects] = await Promise.all([
-                            keywordsFactura.some(k => lowerMsg.includes(k)) ? perfex.getInvoices(customer.customerId).catch(() => []) : Promise.resolve([]),
+                            keywordsFactura.some(k => lowerMsg.includes(k)) ? perfex.getInvoices(customer.customerId, 1).catch(() => []) : Promise.resolve([]),
                             keywordsProyecto.some(k => lowerMsg.includes(k)) ? perfex.getProjects(customer.customerId).catch(() => []) : Promise.resolve([])
                         ]);
 
@@ -159,8 +159,9 @@ async function handlePluginRequest(req, res) {
                         if (Array.isArray(invoices) && invoices.length > 0) {
                             const pending = invoices.filter(inv => ['Por pagar', 'Vencida', 'Parcialmente pagada'].includes(inv.status_name));
                             if (pending.length > 0) {
-                                fullResponse += `\n*📄 FACTURAS PENDIENTES:*\n` + 
-                                    pending.map(inv => `• ${inv.number}: $${inv.total} (${inv.status_name})\n  🔗 Pagar: ${inv.view_url}`).join('\n\n') + `\n`;
+                                const inv = pending[0];
+                                fullResponse += `\n*📄 FACTURA PENDIENTE:*\n` + 
+                                    `• ${inv.number}: $${inv.total} (${inv.status_name})\n  🔗 Pagar: ${inv.view_url}\n`;
                             } else {
                                 fullResponse += `\n✅ No tienes facturas pendientes de pago.\n`;
                             }
@@ -180,9 +181,12 @@ async function handlePluginRequest(req, res) {
                             status: "success", 
                             response: ack, 
                             message: ack, 
+                            content: ack,
                             text: ack, 
                             output: ack,
-                            final: true 
+                            final: true,
+                            stop: true,
+                            direct_reply: true
                         });
                     }
                     const notFoundMsg = "Lo siento, no pude encontrar tu número en nuestro sistema. ¿Me podrías dar tu correo electrónico para buscarte mejor?";

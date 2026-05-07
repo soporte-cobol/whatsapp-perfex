@@ -71,8 +71,8 @@ class PerfexService {
         return this._request('get', { action: 'get_customer_by_vat', vat });
     }
 
-    async getInvoices(customerId) {
-        return this._request('get', { action: 'get_invoices', customer_id: customerId });
+    async getInvoices(customerId, limit = 0) {
+        return this._request('get', { action: 'get_invoices', customer_id: customerId, limit });
     }
 
     async getSupportTickets(email) {
