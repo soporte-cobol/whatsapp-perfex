@@ -53,12 +53,12 @@ if (stripos($auth_header, 'Bearer ') === 0) {
     $auth_header = trim(substr($auth_header, 7));
 }
 
-// DESCOMENTAR PARA DEPURAR: Esto aparecerá en el "error_log" de tu cPanel del CRM
-if (empty($auth_header) || $auth_header !== trim((string)$secret_key)) {
-    error_log("❌ AUTH FAILED: Recibido [" . ($auth_header ?: 'VACIO') . "] | Esperado [" . $secret_key . "] | IP: " . $_SERVER['REMOTE_ADDR']);
-}
+$clean_secret = trim((string)$secret_key);
 
-if (empty($auth_header) || $auth_header !== trim((string)$secret_key)) {
+if (empty($auth_header) || $auth_header !== $clean_secret) {
+    // Log detallado para soporte técnico
+    error_log("❌ PERFEX BRIDGE AUTH ERROR: Recibido [" . ($auth_header ?: 'VACIO') . "] | Esperado [" . $clean_secret . "] | IP: " . $_SERVER['REMOTE_ADDR'] . " | UA: " . ($_SERVER['HTTP_USER_AGENT'] ?? 'N/A'));
+    
     http_response_code(401);
     echo json_encode(['error' => 'No autorizado', 'debug' => 'Token mismatch']);
     exit;
