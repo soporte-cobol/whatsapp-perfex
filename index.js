@@ -28,7 +28,7 @@ app.post('/ai/plugin', async (req, res) => {
 
         let customer = { found: false };
 
-        // 1. Identificación Multicanal
+        // 1. Identificación
         const emailMatch = msg.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
         if (emailMatch) {
             customer = await perfex.getCustomerByEmail(emailMatch[0]).catch(() => ({ found: false }));
@@ -49,29 +49,25 @@ app.post('/ai/plugin', async (req, res) => {
         if (customer.found) {
             console.log(`✅ IDENTIFICADO: ${customer.firstname}`);
             
-            // 2. RECOPILACIÓN TOTAL DE DATOS
-            const [invoices, projects, contracts, tickets] = await Promise.all([
-                perfex.getInvoices(customer.customerId, 5).catch(() => []),
-                perfex.getProjects(customer.customerId, 3).catch(() => []),
-                perfex.getContracts(customer.customerId, 3).catch(() => []),
-                perfex.getTickets(customer.email, 3).catch(() => [])
+            // 2. Recopilación Segura
+            const results = await Promise.allSettled([
+                perfex.getInvoices(customer.customerId, 5),
+                perfex.getProjects(customer.customerId, 3),
+                perfex.getContracts(customer.customerId, 3),
+                perfex.getTickets(customer.email, 3)
             ]);
 
-            // Resumen para la IA
-            const pendingInvoices = invoices.filter(i => i.status != 2 && i.status != 4 && i.status != 5);
-            
-            let contextCRM = `
-            - Facturas Pendientes: ${pendingInvoices.length}
-            - Proyectos Activos: ${projects.length}
-            - Contratos Vigentes: ${contracts.length}
-            - Tickets de Soporte: ${tickets.length}
-            `;
+            const invoices = results[0].status === 'fulfilled' && Array.isArray(results[0].value) ? results[0].value : [];
+            const projects = results[1].status === 'fulfilled' && Array.isArray(results[1].value) ? results[1].value : [];
+            const contracts = results[2].status === 'fulfilled' && Array.isArray(results[2].value) ? results[2].value : [];
+            const tickets = results[3].status === 'fulfilled' && Array.isArray(results[3].value) ? results[3].value : [];
 
-            // Mensaje Rígido (Resumen Técnico)
+            const pending = invoices.filter(i => i.status != 2 && i.status != 4 && i.status != 5);
+            
             let rigidMsg = `*RESUMEN DE CUENTA GM GROUP* 🏛️\n`;
-            if (pendingInvoices.length > 0) {
+            if (pending.length > 0) {
                 rigidMsg += `\n📄 *Facturas Pendientes:*`;
-                pendingInvoices.forEach(i => rigidMsg += `\n• ${i.number}: $${i.total}\n  🔗 ${i.view_url}`);
+                pending.forEach(i => rigidMsg += `\n• ${i.number}: $${i.total}\n  🔗 ${i.view_url}`);
             }
             if (projects.length > 0) {
                 rigidMsg += `\n\n🏗️ *Tus Proyectos:*`;
@@ -86,31 +82,17 @@ app.post('/ai/plugin', async (req, res) => {
                 tickets.forEach(t => rigidMsg += `\n• ${t.subject} (Estado: ${t.status})`);
             }
 
-            // 3. RESPUESTA DE IA (LAURA)
+            // 3. IA Laura
             let aiMsg = null;
             if (gemini.isReady()) {
-                const fullPrompt = `
-                ${aiConfig.PRE_PROMPT}
-                
-                DATOS CRM DEL CLIENTE:
-                - Nombre: ${customer.firstname} ${customer.lastname}
-                - Empresa: ${customer.company}
-                - Resumen: ${contextCRM}
-                - Detalles: ${rigidMsg}
-                
-                PREGUNTA ACTUAL: "${msg}"
-                
-                ${aiConfig.POST_PROMPT}
-                `;
+                const fullPrompt = `${aiConfig.PRE_PROMPT}\n\nCliente: ${customer.firstname}. Info CRM: ${rigidMsg}\n\nPregunta: "${msg}"\n\n${aiConfig.POST_PROMPT}`;
                 aiMsg = await gemini.generateText(fullPrompt);
             }
 
-            // Enviar respuestas
             if (aiMsg) {
                 await whatsapp.sendText(cleanFrom, aiMsg);
             } else {
-                const fallback = `¡Hola ${customer.firstname}! Soy ${aiConfig.BOT_NAME}. Aquí tienes el resumen de tu cuenta:`;
-                await whatsapp.sendText(cleanFrom, fallback);
+                await whatsapp.sendText(cleanFrom, `¡Hola ${customer.firstname}! Soy ${aiConfig.BOT_NAME}. Aquí tienes tus datos:`);
             }
             
             await whatsapp.sendText(cleanFrom, rigidMsg);
@@ -119,7 +101,7 @@ app.post('/ai/plugin', async (req, res) => {
             console.log(`⚠️ NO ENCONTRADO.`);
             let aiFallback = aiConfig.FALLBACK_PROMPT;
             if (gemini.isReady()) {
-                aiFallback = await gemini.generateText(`Pide amablemente correo o NIT. Cliente dice: "${msg}"`).catch(() => aiFallback);
+                aiFallback = await gemini.generateText(`Contexto: ${aiConfig.PRE_PROMPT}. Pide amablemente correo o NIT.`).catch(() => aiFallback);
             }
             await whatsapp.sendText(cleanFrom, aiFallback);
         }
@@ -127,7 +109,7 @@ app.post('/ai/plugin', async (req, res) => {
         return res.json({ status: "success", response: "", final: true, stop: true });
 
     } catch (error) {
-        console.error(`💥 Error:`, error.message);
+        console.error(`💥 Error Crítico:`, error.message);
         return res.json({ status: "error" });
     }
 });
@@ -136,5 +118,5 @@ app.post('/', (req, res) => res.redirect(307, '/ai/plugin'));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`\n🚀 LAURA (AGENTE DE VIAJES) ONLINE EN PUERTO ${PORT}`);
+    console.log(`\n🚀 LAURA (VERSIÓN BLINDADA) ONLINE EN PUERTO ${PORT}`);
 });
