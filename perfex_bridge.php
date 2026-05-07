@@ -7,14 +7,18 @@
 define('BASEPATH', 'dummy');
 
 // Validación preventiva: Verificar si el archivo de configuración de Perfex existe
-if (!file_exists(__DIR__ . '/app-config.php')) {
+if (!file_exists(__DIR__ . '/application/config/app-config.php')) {
     http_response_code(500);
-    die(json_encode(['error' => 'El archivo app-config.php no fue encontrado. Asegúrate de que perfex_bridge.php esté en la carpeta raíz de Perfex CRM.', 'path_buscado' => __DIR__]));
+    die(json_encode([
+        'error' => 'Configuración de Perfex no encontrada.',
+        'detalle' => 'El archivo app-config.php no se encontró en application/config/.',
+        'path' => __DIR__
+    ]));
 }
-require_once(__DIR__ . '/app-config.php');
+require_once(__DIR__ . '/application/config/app-config.php');
 
 // Seguridad: Token para que solo tu bot pueda consultar
-$secret_key = "TU_TOKEN_DE_SEGURIDAD_AQUI"; // <--- Debe coincidir con PERFEX_API_TOKEN en el .env
+$secret_key = "PON_AQUI_EL_MISMO_TOKEN_QUE_EN_TU_DOT_ENV"; // <--- Cambia esto
 
 // Seguridad Extra: Es altamente recomendable validar el origen.
 // Si conoces la IP de tu servidor Node, descomenta las siguientes líneas:

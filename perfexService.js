@@ -25,7 +25,11 @@ class PerfexService {
             const response = await axios(config);
             return response.data;
         } catch (error) {
-            console.error(`Error en PerfexService (${params.action || 'POST'}):`, error.message);
+            const errorMsg = error.response?.data?.error || error.message;
+            console.error(`❌ Error en PerfexService (${params.action || 'POST'}):`, errorMsg);
+            if (error.response?.data?.path_buscado) {
+                console.error(`📂 Path buscado en servidor:`, error.response.data.path_buscado);
+            }
             throw error;
         }
     }
