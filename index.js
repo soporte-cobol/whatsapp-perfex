@@ -115,8 +115,9 @@ async function handlePluginRequest(req, res) {
 
         // 2. Si NO hay acción detectable, es un mensaje directo o heartbeat
         if (!action) {
-            const msg = req.body.message || (req.body.data && req.body.data.message);
-            const from = req.body.from || (req.body.data && (req.body.data.phone || req.body.data.wid));
+            // Intentar extraer mensaje y emisor de varias estructuras posibles
+            const msg = (req.body.data && req.body.data.message) || req.body.message;
+            const from = (req.body.data && (req.body.data.phone || req.body.data.wid)) || req.body.from;
 
             if (msg && from) {
                 logger.info(`💬 Mensaje recibido de ${from}`);
@@ -150,7 +151,8 @@ async function handlePluginRequest(req, res) {
                     return res.json({ status: "success", message: "No pude identificarte para buscar facturas. Por favor, dime tu correo electrónico." });
                 }
                 // Si no es una pregunta de factura, simplemente acusamos recibo como texto
-                return res.json({ status: "success", message: `Mensaje recibido: "${msg.substring(0, 50)}..."` });
+                // Retornamos un campo 'response' claro para que el motor de IA tenga contenido
+                return res.json({ status: "success", response: `Mensaje recibido correctamente: "${msg.substring(0, 30)}..."` });
             }
             
             return res.json({ status: "success", message: "Heartbeat processed" });
