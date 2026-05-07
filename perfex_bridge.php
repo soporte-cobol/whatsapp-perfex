@@ -86,41 +86,37 @@ $response = [];
 
 switch ($action) {
     case 'get_customer_by_phone':
-        // Buscamos en tblcontacts ya que allí residen los teléfonos de los contactos individuales
-        // Limpiamos el teléfono de caracteres no numéricos para una búsqueda más flexible
         $cleanPhone = preg_replace('/[^0-9]/', '', $phone);
-        
-        // Si el número es largo (ej: 12 dígitos como 573001234567), 
-        // extraemos los últimos 10 para evitar problemas con el prefijo internacional
-        $searchNumber = (strlen($cleanPhone) > 10) ? substr($cleanPhone, -10) : $cleanPhone;
+        $searchNumber = (strlen($cleanPhone) > 7) ? substr($cleanPhone, -7) : $cleanPhone;
         if (empty($searchNumber)) { 
             $response = ['found' => false, 'error' => 'Teléfono vacío']; 
             break; 
         }
-        $likePhone = "%" . $mysqli->real_escape_string($searchNumber); // Buscamos que el número termine en estos dígitos
+        $likePhone = "%" . $searchNumber . "%";
         
         $stmt = $mysqli->prepare("
             SELECT c.userid as customerId, c.id as contactId, c.firstname, c.lastname, cl.company 
             FROM tblcontacts c 
-            JOIN tblclients cl ON c.userid = cl.userid 
-            WHERE c.phonenumber LIKE ? OR cl.phonenumber LIKE ? LIMIT 1");
-        $stmt->bind_param("ss", $likePhone, $likePhone);
+            LEFT JOIN tblclients cl ON c.userid = cl.userid 
+            WHERE c.phonenumber LIKE ? OR cl.phonenumber LIKE ? OR c.firstname LIKE ? LIMIT 1");
+        $stmt->bind_param("sss", $likePhone, $likePhone, $likePhone);
         $stmt->execute();
         $result = $stmt->get_result()->fetch_assoc();
-        $response = $result ? array_merge($result, ['found' => true]) : ['found' => false, 'error' => 'Cliente no encontrado'];
+        $response = $result ? array_merge($result, ['found' => true]) : ['found' => false, 'error' => 'No match for ' . $searchNumber];
         break;
 
     case 'get_customer_by_email':
-        $cleanEmail = strtolower(trim($email));
+        $cleanEmail = trim(strtolower($email));
         $stmt = $mysqli->prepare("
             SELECT c.userid as customerId, c.id as contactId, c.firstname, c.lastname, cl.company 
             FROM tblcontacts c 
-            JOIN tblclients cl ON c.userid = cl.userid 
-            WHERE LOWER(c.email) = LOWER(?) ORDER BY c.is_primary DESC, c.id DESC LIMIT 1");
-        $stmt->bind_param("s", $cleanEmail);
+            LEFT JOIN tblclients cl ON c.userid = cl.userid 
+            WHERE TRIM(LOWER(c.email)) = ? OR c.email LIKE ? LIMIT 1");
+        $likeEmail = "%" . $cleanEmail . "%";
+        $stmt->bind_param("ss", $cleanEmail, $likeEmail);
         $stmt->execute();
         $result = $stmt->get_result()->fetch_assoc();
-        $response = $result ? array_merge($result, ['found' => true]) : ['found' => false, 'error' => 'Cliente no encontrado'];
+        $response = $result ? array_merge($result, ['found' => true]) : ['found' => false, 'error' => 'No match for email ' . $cleanEmail];
         break;
 
     case 'get_customer_by_vat':
