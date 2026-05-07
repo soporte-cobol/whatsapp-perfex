@@ -11,8 +11,8 @@ class WhatsAppService {
     async sendText(recipient, message) {
         if (!message) return;
 
-        // Bajamos el límite a 250 para asegurar que Zender no corte nada
-        const MAX_LENGTH = 250; 
+        // Subimos a 400 para un mejor balance entre seguridad y fluidez
+        const MAX_LENGTH = 400; 
         
         if (message.length > MAX_LENGTH) {
             const chunks = this._splitMessage(message, MAX_LENGTH);
