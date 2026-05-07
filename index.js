@@ -1,36 +1,21 @@
 require('dotenv').config();
 const express = require('express');
-const winston = require('winston');
 const path = require('path');
 const fs = require('fs');
 const PerfexService = require('./perfexService');
 const WhatsAppService = require('./whatsappService');
 const GeminiService = require('./geminiService');
 
-function _asNonEmptyText(value) {
-    const text = (value === undefined || value === null) ? '' : String(value);
-    const trimmed = text.trim();
-    return trimmed.length ? trimmed : null;
-}
+const app = express();
 
-function sendCobolJson(res, payload) {
-    const safePayload = payload && typeof payload === 'object' ? { ...payload } : {};
-    const candidateText = _asNonEmptyText(safePayload.response) || "OK";
-    if (!_asNonEmptyText(safePayload.response)) safePayload.response = candidateText;
-    return res.json(safePayload);
-}
+// Body Parsers (Importante tener ambos)
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Configuración de logs
-const logDir = path.join(__dirname, 'logs');
-if (!fs.existsSync(logDir)) fs.mkdirSync(logDir);
-
-const logger = winston.createLogger({
-    level: 'info',
-    format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
-    transports: [
-        new winston.transports.File({ filename: path.join(logDir, 'combined.log') }),
-        new winston.transports.Console({ format: winston.format.simple() })
-    ]
+// Log Global de Peticiones (Radar)
+app.use((req, res, next) => {
+    console.log(`📡 [${new Date().toLocaleTimeString()}] ${req.method} ${req.url} | IP: ${req.ip}`);
+    next();
 });
 
 // Inicialización
@@ -38,115 +23,82 @@ const perfex = new PerfexService(process.env.PERFEX_BASE_URL, process.env.PERFEX
 const whatsapp = new WhatsAppService(process.env.WHATSAPP_API_SECRET, process.env.WHATSAPP_ACCOUNT_ID);
 const gemini = new GeminiService(process.env.GEMINI_API_KEY, process.env.GEMINI_MODEL);
 
-const app = express();
-app.use(express.json());
-
 app.post('/ai/plugin', async (req, res) => {
     try {
         const body = req.body;
-        console.log(`\n📩 NUEVO MENSAJE RECIBIDO`);
+        console.log(`📩 PROCESANDO PLUGIN REQUEST...`);
         
-        const msg = (body.data && body.data.message) || body.message || "";
-        const from = (body.data && (body.data.phone || body.data.wid)) || body.from;
-        const secret = body.secret || "";
+        // Detección flexible de datos (Cobol a veces lo anida en 'data')
+        const data = body.data || body;
+        const msg = data.message || body.message || "";
+        const from = data.phone || data.wid || body.from || "";
+        const secret = body.secret || data.secret || "";
 
         if (secret !== process.env.WEBHOOK_API_KEY) {
-            console.log(`🚫 Bloqueado: Secret incorrecto`);
-            return res.status(200).json({ status: "error", message: "Auth failed" });
+            console.log(`🚫 Bloqueado: Secret incorrecto (${secret})`);
+            return res.json({ status: "error", message: "Auth failed" });
         }
 
-        if (!msg || !from) {
-            console.log(`ℹ️ Heartbeat o mensaje vacío`);
+        if (!msg) {
+            console.log(`ℹ️ Mensaje vacío o Heartbeat detectado`);
             return res.json({ status: "success", stop: true });
         }
 
         const cleanFrom = String(from).split('@')[0].replace(/\D/g, '');
-        console.log(`👤 De: ${cleanFrom} | Msg: "${msg}"`);
+        console.log(`💬 Mensaje de ${cleanFrom}: "${msg}"`);
 
-        // 1. IDENTIFICACIÓN DEL CLIENTE (Búsqueda flexible)
-        console.log(`🔍 Buscando cliente en Perfex...`);
+        // Búsqueda en Perfex
+        console.log(`🔍 Buscando cliente...`);
         let customer = await perfex.getCustomerByPhone(cleanFrom).catch(() => ({ found: false }));
         
-        // Si no lo encuentra por número completo, intentamos por los últimos 10 dígitos (Colombia)
         if (!customer.found && cleanFrom.length > 10) {
-            const last10 = cleanFrom.slice(-10);
-            console.log(`🔍 Reintentando con últimos 10 dígitos: ${last10}`);
-            customer = await perfex.getCustomerByPhone(last10).catch(() => ({ found: false }));
+            customer = await perfex.getCustomerByPhone(cleanFrom.slice(-10)).catch(() => ({ found: false }));
         }
 
         if (customer.found) {
-            console.log(`✅ CLIENTE ENCONTRADO: ${customer.firstname} (ID: ${customer.customerId})`);
+            console.log(`✅ Cliente encontrado: ${customer.firstname}`);
             
-            const lowerMsg = msg.toLowerCase();
-            const keywordsFactura = ['factura', 'debo', 'pendiente', 'pagos', 'pagar', 'saldo', 'pago', 'cuenta'];
-            const wantsInvoices = keywordsFactura.some(k => lowerMsg.includes(k));
-
-            console.log(`📊 Consultando datos de cuenta...`);
+            // Consultar facturas/proyectos
             const [invoices, projects] = await Promise.all([
-                (wantsInvoices || lowerMsg.length < 20) ? perfex.getInvoices(customer.customerId, 5).catch(() => []) : Promise.resolve([]),
+                perfex.getInvoices(customer.customerId, 5).catch(() => []),
                 perfex.getProjects(customer.customerId, 3).catch(() => [])
             ]);
 
-            let rigidAnswer = `*DATOS DE TU CUENTA (CRM):*\n`;
-            let hasData = false;
+            let rigidData = `Facturas: ${invoices.length}, Proyectos: ${projects.length}`;
+            let rigidMsg = `*RESUMEN CRM:*\n`;
+            invoices.filter(i => i.status != 2).forEach(i => rigidMsg += `\n• ${i.number}: $${i.total}`);
+            if (invoices.length === 0) rigidMsg = "No tienes facturas pendientes.";
 
-            if (Array.isArray(invoices) && invoices.length > 0) {
-                const pending = invoices.filter(inv => inv.status != 2 && inv.status != 4); // No pagadas ni canceladas
-                if (pending.length > 0) {
-                    rigidAnswer += `\n📄 *Facturas Pendientes:*`;
-                    pending.forEach(inv => rigidAnswer += `\n• ${inv.number}: $${inv.total}\n  🔗 ${inv.view_url}`);
-                    hasData = true;
-                }
-            }
-
-            if (Array.isArray(projects) && projects.length > 0) {
-                rigidAnswer += `\n\n🏗️ *Proyectos:*`;
-                projects.forEach(p => rigidAnswer += `\n• ${p.name} (Estado: ${p.status_name || p.status})`);
-                hasData = true;
-            }
-
-            if (!hasData) rigidAnswer = "✅ No tienes facturas pendientes ni proyectos activos en este momento.";
-
-            let aiAnswer = "Hola, un gusto saludarte. Aquí tienes la información solicitada:";
+            let aiMsg = "Hola! Soy tu asistente virtual.";
             if (gemini.isReady()) {
-                console.log(`🤖 Generando respuesta con Gemini...`);
-                const prompt = `Eres un asistente de GM Group. Cliente: ${customer.firstname}. Info: ${rigidAnswer}. Pregunta: "${msg}". Responde amable y breve.`;
-                aiAnswer = await gemini.generateText(prompt).catch(e => {
-                    console.error(`❌ Error Gemini: ${e.message}`);
-                    return aiAnswer;
-                });
+                aiMsg = await gemini.generateText(`Cliente: ${customer.firstname}. Contexto: ${rigidData}. Pregunta: ${msg}`).catch(() => aiMsg);
             }
 
-            console.log(`📤 Enviando mensajes por WhatsApp API...`);
-            await whatsapp.sendText(cleanFrom, aiAnswer).catch(e => console.error(`❌ Falló envío IA: ${e.message}`));
-            await whatsapp.sendText(cleanFrom, rigidAnswer).catch(e => console.error(`❌ Falló envío CRM: ${e.message}`));
+            console.log(`📤 Enviando respuestas por API...`);
+            await whatsapp.sendText(cleanFrom, aiMsg).catch(e => console.log(`Error API IA: ${e.message}`));
+            await whatsapp.sendText(cleanFrom, rigidMsg).catch(e => console.log(`Error API CRM: ${e.message}`));
 
-            return res.json({ status: "success", response: "", final: true, stop: true });
         } else {
-            console.log(`⚠️ CLIENTE NO ENCONTRADO en Perfex.`);
-            
-            let fallback = "Lo siento, no reconozco este número. ¿Podrías darme tu correo electrónico o NIT para buscarte?";
-            if (gemini.isReady()) {
-                fallback = await gemini.generateText(`Dile al cliente que no lo encontramos por su teléfono (${cleanFrom}) y pídele su correo amablemente.`).catch(() => fallback);
-            }
-
-            // Enviamos el fallback también por API por seguridad
-            console.log(`📤 Enviando mensaje de "No encontrado" por API...`);
-            await whatsapp.sendText(cleanFrom, fallback).catch(e => console.error(`❌ Falló envío Fallback: ${e.message}`));
-
-            return res.json({ status: "success", response: "", final: true, stop: true });
+            console.log(`⚠️ Cliente no encontrado. Enviando fallback.`);
+            const fallback = "Hola! No encuentro tu número registrado. ¿Podrías indicarme tu correo?";
+            await whatsapp.sendText(cleanFrom, fallback).catch(e => console.log(`Error API Fallback: ${e.message}`));
         }
+
+        // Siempre responder 200 OK al panel
+        return res.json({ status: "success", response: "", final: true, stop: true });
+
     } catch (error) {
-        console.error(`💥 ERROR CRÍTICO:`, error);
-        return res.json({ status: "error", response: "Ocurrió un error interno." });
+        console.error(`💥 Error interno:`, error.message);
+        return res.json({ status: "error", response: "Error" });
     }
 });
 
+// Alias para ruta raíz
 app.post('/', (req, res) => res.redirect(307, '/ai/plugin'));
+app.get('/', (req, res) => res.send('Bot Online 🚀'));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`\n🚀 SERVIDOR ONLINE EN PUERTO ${PORT}`);
-    console.log(`📡 URL PERFEX: ${process.env.PERFEX_BASE_URL}`);
-    console.log(`🤖 GEMINI READY: ${gemini.isReady()}`);
+    console.log(`\n🚀 SERVIDOR RADAR ACTIVO EN PUERTO ${PORT}`);
+    console.log(`🔑 WEBHOOK SECRET: ${process.env.WEBHOOK_API_KEY.substring(0, 5)}...`);
 });
