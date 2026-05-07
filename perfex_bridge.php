@@ -1,6 +1,6 @@
 <?php
 /**
- * Bridge de Emergencia - Optimizado para Agencia de Viajes GM Group
+ * Bridge de Emergencia V3 - Super Detective para GM Group
  */
 header('Content-Type: application/json; charset=utf-8');
 define('BASEPATH', 'index.php');
@@ -33,16 +33,21 @@ $response = [];
 switch ($action) {
     case 'get_customer_by_phone':
         $phone = preg_replace('/\D/', '', $_GET['phone'] ?? '');
-        $last7 = substr($phone, -7);
-        // Búsqueda cruzada en contactos y clientes
-        $sql = "SELECT c.userid as customerId, c.id as contactId, c.firstname, c.lastname, cl.company, c.email, cl.vat 
+        $search = substr($phone, -10); // Los últimos 10 dígitos son los más confiables en Colombia
+        
+        $sql = "SELECT c.userid as customerId, c.id as contactId, c.firstname, c.lastname, cl.company, c.email, cl.vat, cl.phonenumber as client_phone, c.phonenumber as contact_phone
                 FROM tblcontacts c 
                 INNER JOIN tblclients cl ON c.userid = cl.userid 
-                WHERE c.phonenumber LIKE '%$last7%' OR cl.phonenumber LIKE '%$last7%' 
+                WHERE c.phonenumber LIKE '%$search%' OR cl.phonenumber LIKE '%$search%' 
                 ORDER BY c.is_primary DESC LIMIT 1";
+        
         $res = mysqli_query($conn, $sql);
         $result = mysqli_fetch_assoc($res);
-        $response = $result ? array_merge($result, ['found' => true]) : ['found' => false];
+        if ($result) {
+            $response = array_merge($result, ['found' => true, 'debug_search' => $search]);
+        } else {
+            $response = ['found' => false, 'debug_search' => $search, 'msg' => 'No se encontró coincidencia'];
+        }
         break;
 
     case 'get_customer_by_email':
@@ -57,11 +62,11 @@ switch ($action) {
         break;
 
     case 'get_customer_by_vat':
-        $vat = mysqli_real_escape_string($conn, trim($_GET['vat'] ?? ''));
+        $vat = preg_replace('/[^0-9]/', '', $_GET['vat'] ?? ''); // Solo números para el NIT
         $sql = "SELECT cl.userid as customerId, c.id as contactId, c.firstname, c.lastname, cl.company, c.email, cl.vat 
                 FROM tblclients cl 
                 INNER JOIN tblcontacts c ON cl.userid = c.userid 
-                WHERE cl.vat = '$vat' OR cl.vat LIKE '%$vat%' 
+                WHERE cl.vat LIKE '%$vat%' 
                 ORDER BY c.is_primary DESC LIMIT 1";
         $res = mysqli_query($conn, $sql);
         $result = mysqli_fetch_assoc($res);
@@ -80,15 +85,7 @@ switch ($action) {
 
     case 'get_projects':
         $cid = intval($_GET['customer_id'] ?? 0);
-        // Lógica de Viajes: Los proyectos suelen ser los planes de viaje
         $sql = "SELECT id, name as travel_plan, status, start_date, deadline FROM tblprojects WHERE clientid = $cid ORDER BY start_date DESC LIMIT 3";
-        $res = mysqli_query($conn, $sql);
-        while ($row = mysqli_fetch_assoc($res)) $response[] = $row;
-        break;
-
-    case 'get_tickets':
-        $email = mysqli_real_escape_string($conn, trim($_GET['email'] ?? ''));
-        $sql = "SELECT ticketid, subject, status, date FROM tbltickets WHERE email = '$email' ORDER BY date DESC LIMIT 3";
         $res = mysqli_query($conn, $sql);
         while ($row = mysqli_fetch_assoc($res)) $response[] = $row;
         break;

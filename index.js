@@ -26,27 +26,34 @@ app.post('/ai/plugin', async (req, res) => {
         const cleanFrom = from.split('@')[0].replace(/\D/g, '');
         if (from.includes('@g.us') || !cleanFrom) return res.json({ status: "success", stop: true });
 
-        console.log(`\n💬 Mensaje de ${cleanFrom}: "${msg}"`);
+        console.log(`\n💬 MENSAJE RECIBIDO: "${msg}" de ${cleanFrom}`);
 
         let customer = { found: false };
 
         // 1. Identificación Multicanal
         const emailMatch = msg.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-        if (emailMatch) customer = await perfex.getCustomerByEmail(emailMatch[0]).catch(() => ({ found: false }));
+        if (emailMatch) {
+            console.log(`🔍 Buscando por EMAIL: ${emailMatch[0]}`);
+            customer = await perfex.getCustomerByEmail(emailMatch[0]).catch(() => ({ found: false }));
+        }
         
         if (!customer.found) {
-            const nitMatch = msg.match(/\d{9}-\d|\d{9}/);
-            if (nitMatch) customer = await perfex.getCustomerByVat(nitMatch[0]).catch(() => ({ found: false }));
+            const nitMatch = msg.match(/\d+/g); // Capturar cualquier grupo de números como posible NIT
+            if (nitMatch && nitMatch.join('').length >= 8) {
+                const potentialNit = nitMatch.join('');
+                console.log(`🔍 Buscando por NIT: ${potentialNit}`);
+                customer = await perfex.getCustomerByVat(potentialNit).catch(() => ({ found: false }));
+            }
         }
 
         if (!customer.found) {
+            console.log(`🔍 Buscando por TELÉFONO: ${cleanFrom}`);
             customer = await perfex.getCustomerByPhone(cleanFrom).catch(() => ({ found: false }));
         }
 
         if (customer.found) {
-            console.log(`✅ IDENTIFICADO: ${customer.firstname} (${customer.company})`);
+            console.log(`✅ CLIENTE IDENTIFICADO: ${customer.firstname} | ID: ${customer.customerId}`);
             
-            // 2. Carga de datos contextuales de viaje
             const results = await Promise.allSettled([
                 perfex.getInvoices(customer.customerId),
                 perfex.getProjects(customer.customerId),
@@ -59,7 +66,6 @@ app.post('/ai/plugin', async (req, res) => {
 
             const pendingInvoices = invoices.filter(i => i.status != 2 && i.status != 4 && i.status != 5);
             
-            // Construcción del mensaje rígido (resumen técnico)
             let rigidMsg = `*ESTADO DE CUENTA GM GROUP* 🏛️\n`;
             if (projects.length > 0) {
                 rigidMsg += `\n✈️ *Tus Planes de Viaje:*`;
@@ -70,67 +76,56 @@ app.post('/ai/plugin', async (req, res) => {
                 pendingInvoices.forEach(i => rigidMsg += `\n• ${i.number}: $${i.total}\n  🔗 ${i.view_url}`);
             }
 
-            // 3. IA Laura con contexto de Viajes
             let aiMsg = null;
             if (gemini.isReady()) {
                 const fullPrompt = `
                 ${aiConfig.PRE_PROMPT}
                 
-                BASE DE CONOCIMIENTO AGENCIA:
-                ${aiConfig.KNOWLEDGE_BASE}
-                
-                DATOS DEL CLIENTE EN GM GROUP:
+                CONTEXTO CLIENTE:
                 - Nombre: ${customer.firstname}
                 - Empresa: ${customer.company}
-                - Planes de Viaje Actuales: ${JSON.stringify(projects)}
-                - Facturas por Pagar: ${JSON.stringify(pendingInvoices)}
-                - Tickets Recientes: ${JSON.stringify(tickets)}
+                - Viajes Activos: ${JSON.stringify(projects)}
+                - Pendientes Cobro: ${JSON.stringify(pendingInvoices)}
                 
-                PREGUNTA DEL CLIENTE: "${msg}"
+                PREGUNTA: "${msg}"
                 
-                ${aiConfig.POST_PROMPT}
+                REGLA: Si el cliente tiene un problema urgente (como maleta), genera el ticket [CREATE_TICKET: 3 | ASUNTO | RESUMEN].
                 `;
                 aiMsg = await gemini.generateText(fullPrompt);
             }
 
             if (aiMsg) {
-                // Procesar comandos de tickets detectados por la IA
                 if (aiMsg.includes('[CREATE_TICKET:')) {
                     const match = aiMsg.match(/\[CREATE_TICKET:\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\]/);
                     if (match) {
                         const [_, priority, subject, summary] = match;
-                        console.log(`🎫 ACCIÓN: Creando Ticket "${subject}"...`);
+                        console.log(`🎫 ACCIÓN: Generando Ticket "${subject}"...`);
                         await perfex.createTicket({
                             subject, message: summary, priority,
                             userid: customer.customerId, contactid: customer.contactId,
                             email: customer.email, name: customer.firstname + ' ' + customer.lastname
-                        }).catch(e => console.error("Error al crear ticket:", e.message));
+                        });
                         aiMsg = aiMsg.replace(/\[CREATE_TICKET:.*?\]/g, '').trim();
                     }
                 }
                 await whatsapp.sendText(cleanFrom, aiMsg);
-            } else {
-                await whatsapp.sendText(cleanFrom, `¡Hola ${customer.firstname}! Soy Laura de GM Group.`);
             }
             
             await whatsapp.sendText(cleanFrom, rigidMsg);
 
         } else {
-            console.log(`⚠️ NO ENCONTRADO: ${cleanFrom}`);
-            let aiFallback = aiConfig.FALLBACK_PROMPT;
-            if (gemini.isReady()) {
-                aiFallback = await gemini.generateText(`Eres Laura de GM Group. No encuentras al cliente con número ${cleanFrom}. Pídele amablemente su correo o NIT. Sé muy entusiasta y profesional. RESPONDE DIRECTAMENTE.`);
-            }
+            console.log(`⚠️ CLIENTE NO IDENTIFICADO: ${cleanFrom}`);
+            let aiFallback = await gemini.generateText(`Eres Laura de GM Group. Pide amablemente el correo o NIT para el número ${cleanFrom}. Sé entusiasta.`);
             await whatsapp.sendText(cleanFrom, aiFallback || aiConfig.FALLBACK_PROMPT);
         }
 
         return res.json({ status: "success", stop: true });
 
     } catch (error) {
-        console.error(`💥 Error Crítico:`, error.message);
+        console.error(`💥 ERROR:`, error.message);
         return res.json({ status: "error" });
     }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`\n🚀 LAURA (AGENCIA V2.5) ONLINE EN PUERTO ${PORT}`));
+app.listen(PORT, () => console.log(`\n🚀 LAURA (MODO DETECTIVE) ONLINE EN PUERTO ${PORT}`));
