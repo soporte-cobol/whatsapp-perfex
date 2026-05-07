@@ -8,7 +8,7 @@ class PerfexService {
         this.baseUrl = baseUrl ? baseUrl.replace(/\/+$/, '') : '';
         this.apiToken = apiToken;
         this.headers = {
-            'Authorization': `Bearer ${apiToken.replace('Bearer ', '').trim()}`
+            'Authorization': `Bearer ${String(apiToken).replace('Bearer ', '').trim()}`
         };
     }
 
@@ -29,6 +29,10 @@ class PerfexService {
             const response = await axios(config);
             return response.data;
         } catch (error) {
+            if (error.response && error.response.status === 401) {
+                // Agregamos un mensaje específico para depurar el 401
+                error.message = `Autenticación fallida con Perfex Bridge (401). Verifica que el token en .env coincida con el $secret_key en PHP.`;
+            }
             // Dejamos que el Dispatcher capture y loguee el error con winston
             throw error;
         }
