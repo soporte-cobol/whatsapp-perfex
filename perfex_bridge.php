@@ -4,9 +4,11 @@
  */
 header('Content-Type: application/json; charset=utf-8');
 error_reporting(E_ALL); 
-ini_set('display_errors', 0); // No mostrar a cliente, pero sí procesar
+ini_set('display_errors', 0); 
 
-// 1. Cargar Configuración de Perfex
+// 1. Cargar Configuración de Perfex (Saltando seguridad BASEPATH)
+define('BASEPATH', 'index.php');
+
 if (!file_exists(__DIR__ . '/application/config/app-config.php')) {
     die(json_encode(['error' => 'No se encontró app-config.php']));
 }

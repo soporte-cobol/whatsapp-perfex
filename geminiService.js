@@ -11,7 +11,7 @@ class GeminiService {
     constructor(apiKey, model) {
         this.apiKey = String(apiKey || '').trim();
         this.model = String(model || '').trim() || 'gemini-1.5-flash';
-        this.baseUrl = 'https://generativelanguage.googleapis.com/v1beta';
+        this.baseUrl = 'https://generativelanguage.googleapis.com/v1';
     }
 
     isReady() {
