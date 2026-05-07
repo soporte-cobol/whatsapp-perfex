@@ -25,24 +25,29 @@ class GeminiService {
     async generateText(prompt) {
         if (!this.isReady()) return null;
         const cleanPrompt = String(prompt || '').trim();
-        if (!cleanPrompt) return null;
+        if (!cleanPrompt) {
+            console.error('⚠️ Intento de generar texto con prompt vacío.');
+            return null;
+        }
 
         const url = `${this.baseUrl}/models/${encodeURIComponent(this.model)}:generateContent`;
 
         try {
+            const requestBody = {
+                contents: [
+                    {
+                        role: 'user',
+                        parts: [{ text: cleanPrompt }]
+                    }
+                ]
+            };
+
             const response = await axios.post(
                 url,
-                {
-                    contents: [
-                        {
-                            role: 'user',
-                            parts: [{ text: cleanPrompt }]
-                        }
-                    ]
-                },
+                requestBody,
                 {
                     params: { key: this.apiKey },
-                    timeout: 12000
+                    timeout: 15000 // Aumentado a 15s para mayor tolerancia
                 }
             );
 
@@ -50,11 +55,22 @@ class GeminiService {
             const text = Array.isArray(parts)
                 ? parts.map((p) => p?.text).filter(Boolean).join('\n').trim()
                 : '';
+            
+            if (!text) {
+                console.warn('⚠️ Gemini devolvió una respuesta vacía.');
+            }
+            
             return text || null;
         } catch (error) {
-            // Dejar que el caller haga fallback; exponemos un error legible.
             const details = error.response?.data?.error?.message || error.response?.data || error.message;
-            const err = new Error(`Gemini generateContent failed: ${typeof details === 'string' ? details : JSON.stringify(details)}`);
+            console.error('❌ Error en Gemini API:', details);
+            
+            // Si el error es específicamente el de "at least one part", logueamos qué intentamos enviar
+            if (String(details).includes('at least one part')) {
+                console.error('DEBUG - Prompt que causó el error:', cleanPrompt);
+            }
+
+            const err = new Error(`Gemini failed: ${typeof details === 'string' ? details : JSON.stringify(details)}`);
             err.cause = error;
             throw err;
         }

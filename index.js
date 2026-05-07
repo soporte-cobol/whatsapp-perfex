@@ -147,6 +147,25 @@ async function handlePluginRequest(req, res) {
                    req.body.input ||
                    (req.body.calls && req.body.calls[0]?.function?.arguments) || req.body;
 
+
+/**
+ * Lógica compartida del Dispatcher (Maneja Plugins y Webhooks)
+ */
+async function handlePluginRequest(req, res) {
+    try {
+        // DEBUG: Log del JSON completo que envía Cobol
+        logger.info(`📥 JSON Recibido desde Cobol: ${JSON.stringify(req.body)}`);
+
+        // 1. Detección de Acción (Tool Call)
+        let action = req.body.action || req.body.function || req.body.name || req.body.method || 
+                     req.body.command || req.body.tool || req.body.plugin ||
+                     (req.body.data && (req.body.data.action || req.body.data.function || req.body.data.name)) ||
+                     (req.body.calls && req.body.calls[0]?.function?.name);
+
+        let args = req.body.arguments || req.body.args || req.body.params || req.body.data ||
+                   req.body.input ||
+                   (req.body.calls && req.body.calls[0]?.function?.arguments) || req.body;
+
         // Parseo de argumentos si vienen como string JSON
         if (typeof args === 'string' && args.trim().startsWith('{')) {
             try {
@@ -166,94 +185,43 @@ async function handlePluginRequest(req, res) {
                 logger.info(`💬 Mensaje de ${cleanFrom}: "${msg.substring(0, 30)}..."`);
                 
                 const lowerMsg = msg.toLowerCase();
-                const keywordsFactura = ['factura', 'debo', 'pendiente', 'pagos', 'pagar', 'saldo'];
-                const keywordsProyecto = ['proyecto', 'proyectos', 'obra', 'tarea'];
                 
-                if (keywordsFactura.some(k => lowerMsg.includes(k)) || keywordsProyecto.some(k => lowerMsg.includes(k))) {
-                    const customer = await perfex.getCustomerByPhone(cleanFrom).catch(() => {
-                        return { found: false };
-                    });
+                // Intentamos identificar al cliente siempre
+                const customer = await perfex.getCustomerByPhone(cleanFrom).catch(() => ({ found: false }));
+                
+                if (customer.found) {
+                    const keywordsFactura = ['factura', 'debo', 'pendiente', 'pagos', 'pagar', 'saldo', 'cuenta', 'cobro'];
+                    const keywordsProyecto = ['proyecto', 'proyectos', 'obra', 'tarea', 'avance', 'estado'];
                     
-                    if (customer.found) {
-                        const [invoices, projects] = await Promise.all([
-                            keywordsFactura.some(k => lowerMsg.includes(k)) ? perfex.getInvoices(customer.customerId, 1).catch(() => []) : Promise.resolve([]),
-                            keywordsProyecto.some(k => lowerMsg.includes(k)) ? perfex.getProjects(customer.customerId, 1).catch(() => []) : Promise.resolve([])
-                        ]);
+                    const wantsInvoices = keywordsFactura.some(k => lowerMsg.includes(k));
+                    const wantsProjects = keywordsProyecto.some(k => lowerMsg.includes(k));
 
-                        let fullResponse = `Hola ${customer.firstname}! 🤖\n`;
-                        
-                        if (Array.isArray(invoices) && invoices.length > 0) {
-                            const pending = invoices.filter(inv => ['Por pagar', 'Vencida', 'Parcialmente pagada'].includes(inv.status_name));
-                            if (pending.length > 0) {
-                                const inv = pending[0];
-                                fullResponse += `\n*📄 FACTURA PENDIENTE:*\n• ${inv.number}: $${inv.total}\n🔗 Pagar: ${inv.view_url}\n`;
-                            }
+                    // Si no detecta palabras clave, igual buscamos datos básicos para que la IA tenga contexto
+                    const [invoices, projects] = await Promise.all([
+                        (wantsInvoices || lowerMsg.length < 20) ? perfex.getInvoices(customer.customerId, 3).catch(() => []) : Promise.resolve([]),
+                        (wantsProjects || lowerMsg.length < 20) ? perfex.getProjects(customer.customerId, 3).catch(() => []) : Promise.resolve([])
+                    ]);
+
+                    // Construcción de Respuesta Rígida (Base de Datos)
+                    let rigidAnswer = `*DATOS DE TU CUENTA (CRM):*\n`;
+                    let hasData = false;
+
+                    if (Array.isArray(invoices) && invoices.length > 0) {
+                        const pending = invoices.filter(inv => ['Por pagar', 'Vencida', 'Parcialmente pagada'].includes(inv.status_name));
+                        if (pending.length > 0) {
+                            rigidAnswer += `\n📄 *Facturas Pendientes:*`;
+                            pending.forEach(inv => {
+                                rigidAnswer += `\n• ${inv.number}: $${inv.total} (Vence: ${inv.duedate})\n  🔗 Pagar: ${inv.view_url}`;
+                            });
+                            hasData = true;
                         }
-
-                        if (Array.isArray(projects) && projects.length > 0) {
-                            const proj = projects[0];
-                            fullResponse += `\n*🏗️ PROYECTO ACTIVO:*\n• ${proj.name}\n`;
-                        }
-
-                        if (fullResponse.length < 50) fullResponse += "\n✅ No tienes deudas ni proyectos pendientes.";
-
-                        // 1) Respuesta natural (IA) + 2) respuesta rígida (DB)
-                        const userQuestion = String(msg || '').trim();
-                        const rigidAnswer = String(fullResponse || '').trim();
-
-                        let aiAnswer = null;
-                        if (gemini.isReady()) {
-                            const prompt = [
-                                "Eres un asistente de soporte de un CRM (Perfex).",
-                                "Responde en español, amable y muy breve (1-3 frases).",
-                                "No inventes datos: usa SOLO la información del bloque 'DATOS CRM'.",
-                                "",
-                                `PREGUNTA DEL CLIENTE: ${userQuestion || "(sin texto)"}`,
-                                "",
-                                "DATOS CRM:",
-                                rigidAnswer || "(sin datos)"
-                            ].join("\n");
-
-                            try {
-                                aiAnswer = await gemini.generateText(prompt);
-                            } catch (e) {
-                                logger.error(`Error IA Gemini: ${e.message}`);
-                                aiAnswer = null;
-                            }
-                        }
-
-                        if (aiAnswer) {
-                            await whatsapp.sendText(cleanFrom, aiAnswer).catch(e => logger.error(`Error enviando WhatsApp IA: ${e.message}`));
-                        }
-                        await whatsapp.sendText(cleanFrom, rigidAnswer).catch(e => logger.error(`Error enviando WhatsApp rígido: ${e.message}`));
-
-                        const ack = "Información enviada correctamente.";
-                        return sendCobolJson(res, { 
-                            status: "success", 
-                            response: ack, 
-                            message: ack, 
-                            text: ack, 
-                            output: ack,
-                            final: true, 
-                            stop: true 
-                        });
                     }
-                    const notFoundMsg = "Lo siento, no pude encontrar tu número en nuestro sistema. ¿Me podrías dar tu correo electrónico para buscarte mejor?";
-                    return sendCobolJson(res, { status: "success", response: notFoundMsg, message: notFoundMsg, text: notFoundMsg });
-                }
-                // Si no es una pregunta de factura, simplemente acusamos recibo como texto
-                // Retornamos un campo 'response' claro para que el motor de IA tenga contenido
-                const welcomeMsg = "Hola! Soy tu asistente virtual. ¿En qué puedo ayudarte hoy con tus facturas o proyectos?";
-                return sendCobolJson(res, { status: "success", response: welcomeMsg, message: welcomeMsg, text: welcomeMsg });
-            }
-            
-            return sendCobolJson(res, { status: "success", message: "Heartbeat processed", response: "Heartbeat processed", text: "Heartbeat processed" });
-        }
 
-        logger.info(`🤖 IA llamando a función: ${action}`, { args });
-
-        switch (action) {
-            case 'identifyCustomer':
+                    if (Array.isArray(projects) && projects.length > 0) {
+                        rigidAnswer += `\n\n🏗️ *Proyectos:*`;
+                        projects.forEach(p => {
+                            rigidAnswer += `\n• ${p.name} (Estado: ${p.status})`;
+                        });
                 const customer = await perfex.getCustomerByPhone(args.phone);
                 const idMsg = customer.found ? `Identificado: ${customer.firstname}` : "No encontrado";
                 return sendCobolJson(res, { ...customer, response: idMsg, message: idMsg, output: idMsg });
