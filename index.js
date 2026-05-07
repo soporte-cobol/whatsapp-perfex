@@ -91,6 +91,9 @@ const authenticateWebhook = (req, res, next) => {
  */
 async function handlePluginRequest(req, res) {
     try {
+        // DEBUG: Log del JSON completo que envía Cobol
+        logger.info('📥 JSON Recibido desde Cobol:', { body: req.body });
+
         // 1. Detección de Acción (Tool Call)
         let action = req.body.action || req.body.function || req.body.name || req.body.method || 
                      req.body.command || req.body.tool || req.body.plugin ||
@@ -120,37 +123,30 @@ async function handlePluginRequest(req, res) {
                 const lowerMsg = msg.toLowerCase();
                 const keywords = ['factura', 'debo', 'pendiente', 'pagos', 'pagar', 'saldo'];
                 
-                if (keywords.some(k => lowerMsg.includes(keywords))) {
+                // CORRECCIÓN: Búsqueda correcta de palabras clave
+                if (keywords.some(k => lowerMsg.includes(k))) {
                     const customer = await perfex.getCustomerByPhone(from);
                     if (customer.found) {
                         const invoices = await perfex.getInvoices(customer.customerId);
-                        // Construir un resumen natural del estado de las facturas
-                        let summary = `Hola ${customer.firstname || 'cliente'}! `;
+                        
+                        // Lógica de "Doble Mensaje": Enviamos los datos brutos directo al WhatsApp
+                        let rawData = `📊 *ESTADO DE CUENTA - ${customer.company}*\n\n`;
                         if (invoices.length > 0) {
-                            const pending = invoices.filter(inv => inv.status_name === 'Por pagar' || inv.status_name === 'Vencida');
-                            if (pending.length > 0) {
-                                summary += `Tienes ${pending.length} factura(s) pendiente(s). Te las envío en un momento.`;
-                                // Enviar las facturas como un mensaje separado
-                                const invoiceDetails = pending.map(inv => `*Factura ${inv.number}*: $${inv.total} (${inv.status_name}). Ver: ${inv.view_url}`).join('\n');
-                                await whatsapp.sendText(from, summary + '\n' + invoiceDetails);
-                            } else {
-                                summary += `No tienes facturas pendientes de pago.`;
-                                await whatsapp.sendText(from, summary);
-                            }
+                            rawData += invoices.map(inv => `- Factura ${inv.number}: $${inv.total} (${inv.status_name})\n🔗 Ver: ${inv.view_url}`).join('\n\n');
                         } else {
-                            summary += `No encontré facturas registradas para tu cuenta.`;
-                            await whatsapp.sendText(from, summary);
+                            rawData += "No registras facturas en el sistema.";
                         }
-                        // Devolvemos una respuesta simple a la plataforma para que Gemini no se rompa
-                        return res.json({ status: "success", message: "Información de facturas enviada directamente." });
+                        
+                        await whatsapp.sendText(from, rawData).catch(e => logger.error("Error envío directo:", e.message));
+
+                        // Respondemos a Gemini con TEXTO SIMPLE para que no se rompa
+                        return res.json({ text: "He enviado los detalles de tus facturas directamente a este chat. ¿Hay algo más en lo que pueda ayudarte?" });
                     }
-                    return res.json({ status: "success", message: "No pude identificarte para buscar facturas. Por favor, dime tu correo electrónico." });
                 }
-                // Si no es una pregunta de factura, simplemente acusamos recibo como texto
-                return res.json({ status: "success", message: `Mensaje recibido: "${msg.substring(0, 50)}..."` });
+                // Si no hay intención clara, devolvemos un texto neutro
+                return res.json({ text: "Recibido. ¿En qué puedo ayudarte con respecto a tus viajes o facturación?" });
             }
-            
-            return res.json({ status: "success", message: "Heartbeat processed" });
+            return res.json({ status: "online" });
         }
 
         logger.info(`🤖 IA llamando a función: ${action}`, { args });
