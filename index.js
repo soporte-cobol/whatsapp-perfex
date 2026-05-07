@@ -122,40 +122,50 @@ async function handlePluginRequest(req, res) {
             if (msg && from) {
                 logger.info(`💬 Mensaje recibido de ${from}`);
                 const lowerMsg = msg.toLowerCase();
-                const keywords = ['factura', 'debo', 'pendiente', 'pagos', 'pagar', 'saldo'];
+                const keywords = ['factura', 'debo', 'pendiente', 'pagos', 'pagar', 'saldo', 'proyecto', 'proyectos'];
                 
                 if (keywords.some(k => lowerMsg.includes(k))) {
                     const customer = await perfex.getCustomerByPhone(from);
                     if (customer.found) {
-                        const invoices = await perfex.getInvoices(customer.customerId);
-                        // Construir un resumen natural del estado de las facturas
-                        let summary = `Hola ${customer.firstname || 'cliente'}! `;
-                        if (invoices.length > 0) {
-                            const pending = invoices.filter(inv => inv.status_name === 'Por pagar' || inv.status_name === 'Vencida');
+                        let fullResponse = `Hola ${customer.firstname || 'cliente'}! He verificado tu información:\n\n`;
+                        
+                        // Lógica de Facturas
+                        if (keywords.slice(0, 6).some(k => lowerMsg.includes(k))) {
+                            const invoices = await perfex.getInvoices(customer.customerId);
+                            const pending = invoices.filter(inv => ['Por pagar', 'Vencida', 'Parcialmente pagada'].includes(inv.status_name));
+                            
                             if (pending.length > 0) {
-                                summary += `Tienes ${pending.length} factura(s) pendiente(s). Te las envío en un momento.`;
-                                // Enviar las facturas como un mensaje separado
-                                const invoiceDetails = pending.map(inv => `*Factura ${inv.number}*: $${inv.total} (${inv.status_name}). Ver: ${inv.view_url}`).join('\n');
-                                await whatsapp.sendText(from, summary + '\n' + invoiceDetails);
+                                fullResponse += `*Facturas:* Tienes ${pending.length} pendiente(s).\n` + 
+                                    pending.map(inv => `• ${inv.number}: $${inv.total} (${inv.status_name})`).join('\n');
                             } else {
-                                summary += `No tienes facturas pendientes de pago.`;
-                                await whatsapp.sendText(from, summary);
+                                fullResponse += `*Facturas:* No tienes pagos pendientes actualmente. ✅\n`;
                             }
-                        } else {
-                            summary += `No encontré facturas registradas para tu cuenta.`;
-                            await whatsapp.sendText(from, summary);
                         }
+
+                        // Lógica de Proyectos
+                        if (lowerMsg.includes('proyecto')) {
+                            const projects = await perfex.getProjects(customer.customerId);
+                            if (projects.length > 0) {
+                                fullResponse += `\n*Proyectos:* Tienes ${projects.length} proyecto(s) activo(s).\n` +
+                                    projects.map(p => `• ${p.name}`).join('\n');
+                            } else {
+                                fullResponse += `\n*Proyectos:* No tienes proyectos asignados actualmente.`;
+                            }
+                        }
+
+                        await whatsapp.sendText(from, fullResponse);
+                        
                         // Devolvemos una respuesta simple a la plataforma para que Gemini no se rompa
-                        return res.json({ status: "success", message: "Información de facturas enviada directamente." });
+                        return res.json({ status: "success", response: "Información enviada correctamente por WhatsApp." });
                     }
-                    return res.json({ status: "success", message: "No pude identificarte para buscar facturas. Por favor, dime tu correo electrónico." });
+                    return res.json({ status: "success", response: "No pude identificarte en el sistema con este número. Por favor, indícame tu correo electrónico." });
                 }
                 // Si no es una pregunta de factura, simplemente acusamos recibo como texto
                 // Retornamos un campo 'response' claro para que el motor de IA tenga contenido
-                return res.json({ status: "success", response: `Mensaje recibido correctamente: "${msg.substring(0, 30)}..."` });
+                return res.json({ status: "success", response: "Mensaje recibido. ¿Deseas consultar algo sobre tus facturas o proyectos?" });
             }
             
-            return res.json({ status: "success", message: "Heartbeat processed" });
+            return res.json({ status: "success", response: "Heartbeat processed" });
         }
 
         logger.info(`🤖 IA llamando a función: ${action}`, { args });
@@ -173,7 +183,7 @@ async function handlePluginRequest(req, res) {
                 return res.json(await perfex.getCustomerByVat(args.vat || args.tax_number));
             case 'getInvoices':
                 const cidInv = parseInt(args.customerId || args.id || args.customer_id || (args.customer && args.customer.customerId));
-                if (!cidInv) return res.json({ error: "Falta ID de cliente" });
+                if (!cidInv) return res.json({ error: true, response: "Falta ID de cliente" });
                 const invoices = await perfex.getInvoices(cidInv);
                 return res.json({ invoices });
             case 'getProjects':
@@ -205,11 +215,11 @@ async function handlePluginRequest(req, res) {
                 return res.json(ticket);
             default:
                 logger.warn(`⚠️ Función no reconocida: ${action}`);
-                return res.status(200).json({ error: true, message: `La función ${action} no está implementada.` });
+                return res.status(200).json({ error: true, response: `La función ${action} no está implementada.` });
         }
     } catch (error) {
         logger.error(`❌ Fallo crítico en Dispatcher: ${error.message}`, { stack: error.stack });
-        res.status(200).json({ error: true, message: `Error CRM: ${error.message}` });
+        res.status(200).json({ error: true, response: `Error al procesar la solicitud: ${error.message}` });
     }
 }
 

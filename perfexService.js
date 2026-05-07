@@ -22,11 +22,8 @@ class PerfexService {
             },
             timeout: 10000 // Timeout de 10 segundos para no bloquear la IA
         };
+        console.log(`[DEBUG PerfexService] Enviando token (inicio): ${this.headers.Authorization.substring(0, 8)}...`);
         if (data) config.data = data;
-
-        // Debug log para ver la URL final (sin token completo por seguridad)
-        const debugToken = (this.headers.Authorization || '').substring(0, 6);
-        console.log(`📡 Llamando a Perfex: ${params.action || method} | Token starts with: ${debugToken}`);
 
         try {
             const response = await axios(config);
