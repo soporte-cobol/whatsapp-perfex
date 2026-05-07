@@ -120,6 +120,21 @@ const authenticateWebhook = (req, res, next) => {
 
     if (isApiKeyValid || isBodySecretValid) {
         return next();
+
+// Middleware de seguridad para los endpoints de Cobol
+const authenticateWebhook = (req, res, next) => {
+    // Limpiamos espacios en blanco accidentales de los valores recibidos
+    const apiKey = (req.headers['x-api-key'] || req.headers['X-API-KEY'] || '').trim();
+    const bodySecret = (req.body.secret || req.body.password || '').trim();
+
+    // Cobol envía el Webhook Secret (3368a6...) tanto en el header como en el body secret
+    const expectedWebhookKey = (process.env.WEBHOOK_API_KEY || '').trim();
+
+    const isApiKeyValid = expectedWebhookKey && apiKey === expectedWebhookKey;
+    const isBodySecretValid = expectedWebhookKey && bodySecret === expectedWebhookKey;
+
+    if (isApiKeyValid || isBodySecretValid) {
+        return next();
     }
 
     const debugMsg = `🚫 BLOQUEADO: Credenciales incorrectas. IP: ${req.ip}. Recibido: "${bodySecret.substring(0, 4)}...". Esperado: "${expectedWebhookKey.substring(0, 4)}..."`;
@@ -128,25 +143,6 @@ const authenticateWebhook = (req, res, next) => {
     // Devolvemos 200 con error interno para evitar que Gemini rompa por "Empty Content"
     return sendCobolJson(res.status(200), { status: "error", message: 'Error de autenticación: Las credenciales del webhook no coinciden.' });
 };
-
-/**
- * Lógica compartida del Dispatcher (Maneja Plugins y Webhooks)
- */
-async function handlePluginRequest(req, res) {
-    try {
-        // DEBUG: Log del JSON completo que envía Cobol
-        logger.info(`📥 JSON Recibido desde Cobol: ${JSON.stringify(req.body)}`);
-
-        // 1. Detección de Acción (Tool Call)
-        let action = req.body.action || req.body.function || req.body.name || req.body.method || 
-                     req.body.command || req.body.tool || req.body.plugin ||
-                     (req.body.data && (req.body.data.action || req.body.data.function || req.body.data.name)) ||
-                     (req.body.calls && req.body.calls[0]?.function?.name);
-
-        let args = req.body.arguments || req.body.args || req.body.params || req.body.data ||
-                   req.body.input ||
-                   (req.body.calls && req.body.calls[0]?.function?.arguments) || req.body;
-
 
 /**
  * Lógica compartida del Dispatcher (Maneja Plugins y Webhooks)
@@ -222,6 +218,77 @@ async function handlePluginRequest(req, res) {
                         projects.forEach(p => {
                             rigidAnswer += `\n• ${p.name} (Estado: ${p.status})`;
                         });
+                        hasData = true;
+                    }
+
+                    if (!hasData) {
+                        rigidAnswer = "✅ No tienes facturas pendientes ni proyectos activos en este momento.";
+                    }
+
+                    // Respuesta Natural con Gemini
+                    let aiAnswer = null;
+                    if (gemini.isReady()) {
+                        const prompt = [
+                            "Eres un asistente virtual experto de GM Group (CRM Perfex).",
+                            `Cliente: ${customer.firstname} ${customer.lastname || ''}`,
+                            "Instrucciones: Saluda al cliente por su nombre, sé muy amable y profesional. Responde a su pregunta usando la información del CRM.",
+                            "Si el cliente pregunta por algo que NO está en los datos, dile que no lo encuentras pero que un asesor humano lo revisará.",
+                            "Mantén la respuesta breve (máximo 3 frases).",
+                            "",
+                            `PREGUNTA DEL CLIENTE: "${msg}"`,
+                            "",
+                            "DATOS REALES DEL CRM:",
+                            rigidAnswer
+                        ].join("\n");
+
+                        try {
+                            aiAnswer = await gemini.generateText(prompt);
+                        } catch (e) {
+                            logger.error(`Error IA Gemini: ${e.message}`);
+                        }
+                    }
+
+                    // Enviar las dos respuestas por separado (IA primero, luego Rígida)
+                    if (aiAnswer) {
+                        await whatsapp.sendText(cleanFrom, aiAnswer).catch(e => logger.error(`Error WhatsApp IA: ${e.message}`));
+                    }
+                    
+                    // Solo enviamos la rígida si contiene datos específicos o si la IA falló
+                    await whatsapp.sendText(cleanFrom, rigidAnswer).catch(e => logger.error(`Error WhatsApp Rígido: ${e.message}`));
+
+                    const ack = "Procesado correctamente.";
+                    return sendCobolJson(res, { 
+                        status: "success", 
+                        response: ack, 
+                        final: true, 
+                        stop: true 
+                    });
+                } else {
+                    // Cliente no encontrado por teléfono -> Pedir correo o dejar que la IA maneje la duda
+                    let fallbackMsg = "Lo siento, no reconozco este número de teléfono en nuestro sistema. ¿Podrías indicarme tu correo electrónico o el NIT de tu empresa para buscarte?";
+                    
+                    if (gemini.isReady()) {
+                        const aiFallback = await gemini.generateText(`El cliente dice: "${msg}". No lo encontramos por su teléfono. Dile amablemente que no lo ubicamos y pídele su correo o NIT para ayudarle mejor. Sé muy breve.`);
+                        if (aiFallback) fallbackMsg = aiFallback;
+                    }
+
+                    return sendCobolJson(res, { 
+                        status: "success", 
+                        response: fallbackMsg, 
+                        message: fallbackMsg,
+                        final: true,
+                        stop: true
+                    });
+                }
+            }
+            
+            return sendCobolJson(res, { status: "success", message: "Heartbeat processed", stop: true });
+        }
+
+        logger.info(`🤖 IA llamando a función: ${action}`, { args });
+
+        switch (action) {
+            case 'identifyCustomer':
                 const customer = await perfex.getCustomerByPhone(args.phone);
                 const idMsg = customer.found ? `Identificado: ${customer.firstname}` : "No encontrado";
                 return sendCobolJson(res, { ...customer, response: idMsg, message: idMsg, output: idMsg });
@@ -289,12 +356,6 @@ async function handlePluginRequest(req, res) {
         return sendCobolJson(res.status(200), { error: true, response: `Error al procesar la solicitud: ${error.message}` });
     }
 }
-
-// Manejo de errores fatales para evitar que el log se pierda
-process.on('uncaughtException', (error) => {
-    logger.error('💥 UNCAUGHT EXCEPTION:', { message: error.message, stack: error.stack });
-});
-
 process.on('unhandledRejection', (reason, promise) => {
     logger.error('💥 UNHANDLED REJECTION:', { reason: reason?.message || reason, stack: reason?.stack });
 });
