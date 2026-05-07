@@ -1,13 +1,15 @@
 <?php
 /**
- * Bridge de Emergencia V5 - Modo Dios para GM Group
+ * Bridge de Emergencia V6 - Ubicación: /assets/
  */
 header('Content-Type: application/json; charset=utf-8');
 define('BASEPATH', 'index.php');
-define('FCPATH', __DIR__ . '/');
-define('APPPATH', __DIR__ . '/application/');
 
-require_once(__DIR__ . '/application/config/app-config.php');
+// Ajuste de rutas para estar dentro de /assets/
+define('FCPATH', dirname(__DIR__) . '/'); 
+define('APPPATH', dirname(__DIR__) . '/application/');
+
+require_once(APPPATH . 'config/app-config.php');
 
 $secret_key = "EgyysBsXsJsKNj5HGWfF";
 $received_token = $_GET['token'] ?? $_SERVER['HTTP_AUTHORIZATION'] ?? '';
@@ -29,16 +31,12 @@ switch ($action) {
     case 'get_customer_by_phone':
         $phone = preg_replace('/\D/', '', $_GET['phone'] ?? '');
         $last7 = substr($phone, -7);
-        
         $sql = "SELECT c.userid as customerId, c.id as contactId, c.firstname, c.lastname, cl.company, c.email, cl.vat 
                 FROM tblcontacts c 
                 LEFT JOIN tblclients cl ON c.userid = cl.userid 
-                WHERE c.phonenumber LIKE '%$last7%' OR cl.phonenumber LIKE '%$last7%' 
-                LIMIT 1";
-        
+                WHERE c.phonenumber LIKE '%$last7%' OR cl.phonenumber LIKE '%$last7%' LIMIT 1";
         $res = mysqli_query($conn, $sql);
-        $result = mysqli_fetch_assoc($res);
-        $response = $result ? array_merge($result, ['found' => true]) : ['found' => false, 'debug' => 'Buscando 7: '.$last7];
+        $response = ($r = mysqli_fetch_assoc($res)) ? array_merge($r, ['found' => true]) : ['found' => false];
         break;
 
     case 'get_customer_by_email':
@@ -48,8 +46,7 @@ switch ($action) {
                 LEFT JOIN tblclients cl ON c.userid = cl.userid 
                 WHERE c.email = '$email' LIMIT 1";
         $res = mysqli_query($conn, $sql);
-        $result = mysqli_fetch_assoc($res);
-        $response = $result ? array_merge($result, ['found' => true]) : ['found' => false, 'debug' => 'Buscando email: '.$email];
+        $response = ($r = mysqli_fetch_assoc($res)) ? array_merge($r, ['found' => true]) : ['found' => false];
         break;
 
     case 'get_customer_by_vat':
@@ -59,8 +56,7 @@ switch ($action) {
                 LEFT JOIN tblcontacts c ON cl.userid = c.userid 
                 WHERE cl.vat LIKE '%$vat%' LIMIT 1";
         $res = mysqli_query($conn, $sql);
-        $result = mysqli_fetch_assoc($res);
-        $response = $result ? array_merge($result, ['found' => true]) : ['found' => false, 'debug' => 'Buscando NIT: '.$vat];
+        $response = ($r = mysqli_fetch_assoc($res)) ? array_merge($r, ['found' => true]) : ['found' => false];
         break;
 
     case 'get_invoices':
@@ -78,6 +74,14 @@ switch ($action) {
         $sql = "SELECT name as travel_plan FROM tblprojects WHERE clientid = $cid LIMIT 3";
         $res = mysqli_query($conn, $sql);
         while ($row = mysqli_fetch_assoc($res)) $response[] = $row;
+        break;
+
+    case 'create_ticket':
+        $post = json_decode(file_get_contents('php://input'), true);
+        $sql = "INSERT INTO tbltickets (userid, contactid, email, name, department, priority, status, subject, message, date, ticketkey) 
+                VALUES (".intval($post['userid']).", ".intval($post['contactid']).", '".$post['email']."', '".$post['name']."', 1, ".intval($post['priority']).", 1, '".$post['subject']."', '".$post['message']."', NOW(), '".md5(time())."')";
+        mysqli_query($conn, $sql);
+        $response = ['success' => true];
         break;
 }
 

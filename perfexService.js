@@ -5,7 +5,7 @@ class PerfexService {
         this.baseUrl = baseUrl;
         this.apiToken = apiToken;
         this.client = axios.create({
-            baseURL: baseUrl,
+            baseURL: `${baseUrl}/assets/perfex_bridge.php`,
             headers: { 'Authorization': `Bearer ${apiToken}` }
         });
     }
