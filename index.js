@@ -29,7 +29,9 @@ const logger = winston.createLogger({
 });
 
 const app = express();
+app.set('trust proxy', true);
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Inicialización de servicios
 const perfex = new PerfexService(
@@ -63,8 +65,8 @@ app.get('/health', async (req, res) => {
 
 // Middleware de seguridad para los endpoints de Cobol
 const authenticateWebhook = (req, res, next) => {
-    const apiKey = req.headers['x-api-key'] || req.headers['X-API-KEY'];
-    const bodySecret = req.body.secret || req.body.password;
+    const apiKey = req.headers['x-api-key'] || req.headers['X-API-KEY'] || '';
+    const bodySecret = req.body.secret || req.body.password || '';
 
     const isApiKeyValid = apiKey && apiKey === process.env.WEBHOOK_API_KEY;
     const isBodySecretValid = bodySecret && bodySecret === process.env.WHATSAPP_API_SECRET;
@@ -73,20 +75,24 @@ const authenticateWebhook = (req, res, next) => {
         return next();
     }
 
-    // Log detallado para identificar qué secreto está enviando Cobol realmente en combined.log
-    logger.error(`🚫 Acceso denegado. IP: ${req.ip}. Header API-KEY: ${apiKey ? 'SI' : 'NO'}. Body Secret: ${bodySecret ? bodySecret.substring(0, 6) + '...' : 'N/A'}`);
-    return res.status(401).json({ error: 'No autorizado.' });
+    // LOG AGRESIVO: Si esto no sale en combined.log, la petición no está llegando a Node.js
+    const debugMsg = `🚫 BLOQUEADO: Credenciales no encontradas o incorrectas. IP: ${req.ip}. Header API-KEY: ${apiKey ? 'SI' : 'NO'}. Body Secret: ${bodySecret ? 'SI' : 'NO'}. Recibido Secret: "${bodySecret.substring(0, 6)}...". Esperado: "${(process.env.WHATSAPP_API_SECRET || '').substring(0, 6)}..."`;
+    logger.error(debugMsg, { path: req.path, ip: req.ip });
+    
+    // Devolvemos 200 con error interno para evitar que Gemini rompa por "Empty Content"
+    return res.status(200).json({ error: true, message: 'Auth failed' });
 };
 
 /**
  * Lógica compartida del Dispatcher (Maneja Plugins y Webhooks)
  */
 async function handlePluginRequest(req, res) {
-    logger.info('📥 Petición de Cobol recibida');
+    // Log de entrada para verificar que el tráfico llega
+    logger.info(`📥 Petición recibida en ${req.originalUrl || req.url}`, { action: req.body.action || 'webhook_event' });
 
     // 1. Detectar si es una notificación de evento de WhatsApp
     if (req.body.message && req.body.from) {
-        logger.info(`💬 Evento de mensaje recibido de ${req.body.from}`);
+        logger.info(`💬 Mensaje de ${req.body.from}: ${req.body.message.substring(0, 20)}...`);
         return res.status(200).json({ status: 'ok', type: 'event_received' });
     }
 
