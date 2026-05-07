@@ -1,0 +1,8 @@
+{
+  "secret": "3368a69129eec8b7ec432cb1d14da1af711ff1ad",
+  "type": "whatsapp",
+  "data": {
+    "phone": "573017400000",
+    "message": "¿Tengo facturas pendientes?"
+  }
+}
