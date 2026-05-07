@@ -79,40 +79,27 @@ const authenticateWebhook = (req, res, next) => {
 };
 
 /**
- * Capturador de peticiones a la raíz (/) para evitar 404 si la URL en Cobol está incompleta
+ * Lógica compartida del Dispatcher (Maneja Plugins y Webhooks)
  */
-app.post('/', (req, res) => {
-    logger.warn(`⚠️ Recibida petición en la raíz (/). Redirigiendo internamente. Revisa la URL en el panel de Cobol: debe ser /ai/plugin`);
-    // Redirigimos manualmente al dispatcher
-    req.url = '/ai/plugin';
-    app.handle(req, res);
-});
-
-/**
- * Endpoint Central (Dispatcher)
- * Si la plataforma solo te permite una URL, usa esta: https://wa.gmgroup.com.co/ai/plugin
- */
-app.post('/ai/plugin', authenticateWebhook, async (req, res) => {
-    // Log crítico
+async function handlePluginRequest(req, res) {
     logger.info('📥 Petición de Cobol recibida');
 
-    // 1. Detectar si es una notificación de evento de WhatsApp (Webhook URL)
+    // 1. Detectar si es una notificación de evento de WhatsApp
     if (req.body.message && req.body.from) {
         logger.info(`💬 Evento de mensaje recibido de ${req.body.from}`);
         return res.status(200).json({ status: 'ok', type: 'event_received' });
     }
 
-    // Intentamos obtener el nombre de la función y argumentos de varias formas comunes
+    // Intentamos obtener el nombre de la función y argumentos
     let action = req.body.action || req.body.function || (req.body.calls && req.body.calls[0]?.function?.name);
     let args = req.body.arguments || req.body.params || (req.body.calls && req.body.calls[0]?.function?.arguments) || req.body;
 
-    // Si no hay acción ni es un mensaje, probablemente sea un latido (heartbeat) o estructura desconocida
     if (!action) {
-        logger.info('ℹ️ Petición sin acción (posible heartbeat)');
+        logger.info('ℹ️ Petición sin acción detectable (posible heartbeat)');
         return res.status(200).json({ status: 'ok', message: 'No action detected' });
     }
 
-    // Si args llega como un string JSON, lo parseamos
+    // Parseo de argumentos si vienen como string JSON
     if (typeof args === 'string' && args.trim().startsWith('{')) {
         try {
             args = JSON.parse(args);
@@ -127,83 +114,64 @@ app.post('/ai/plugin', authenticateWebhook, async (req, res) => {
         switch (action) {
             case 'identifyCustomer':
                 const customer = await perfex.getCustomerByPhone(args.phone);
-                if (!customer.found) {
-                    logger.info(`🔍 Cliente no encontrado por teléfono: ${args.phone}`);
-                }
+                if (!customer.found) logger.info(`🔍 Cliente no encontrado por teléfono: ${args.phone}`);
                 return res.json(customer);
             case 'identifyByEmail':
                 const customerByEmail = await perfex.getCustomerByEmail(args.email);
-                logger.info(`CRM response for email ${args.email}:`, customerByEmail);
-                if (!customerByEmail.found) {
-                    logger.info(`🔍 Cliente no encontrado por email: ${args.email}`);
-                }
+                if (!customerByEmail.found) logger.info(`🔍 Cliente no encontrado por email: ${args.email}`);
                 return res.json(customerByEmail);
             case 'identifyByVat':
-                const customerByVat = await perfex.getCustomerByVat(args.vat);
-                return res.json(customerByVat);
+                return res.json(await perfex.getCustomerByVat(args.vat));
             case 'getInvoices':
                 if (!args.customerId) return res.status(400).json({ error: "Falta customerId" });
-                const invoices = await perfex.getInvoices(parseInt(args.customerId));
-                logger.info(`CRM found ${invoices.length} invoices for ID ${args.customerId}`);
-                return res.json(invoices);
+                return res.json(await perfex.getInvoices(parseInt(args.customerId)));
             case 'getProjects':
                 if (!args.customerId) return res.status(400).json({ error: "Falta customerId" });
-                const projects = await perfex.getProjects(parseInt(args.customerId));
-                return res.json(projects);
+                return res.json(await perfex.getProjects(parseInt(args.customerId)));
             case 'getEstimates':
                 if (!args.customerId) return res.status(400).json({ error: "Falta customerId" });
-                const estimates = await perfex.getEstimates(parseInt(args.customerId));
-                return res.json(estimates);
+                return res.json(await perfex.getEstimates(parseInt(args.customerId)));
             case 'getProposals':
                 if (!args.customerId) return res.status(400).json({ error: "Falta customerId" });
-                const proposals = await perfex.getProposals(parseInt(args.customerId));
-                return res.json(proposals);
+                return res.json(await perfex.getProposals(parseInt(args.customerId)));
             case 'createContact':
-                // Validación de email antes de enviar a Perfex
                 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-                if (args.email && !emailRegex.test(args.email)) {
-                    return res.status(400).json({ error: 'Formato de email no válido' });
-                }
-                const newContact = await perfex.createContact(args);
-                return res.json(newContact);
+                if (args.email && !emailRegex.test(args.email)) return res.status(400).json({ error: 'Formato de email no válido' });
+                return res.json(await perfex.createContact(args));
             case 'getSupportTickets':
                 if (!args.email) return res.status(400).json({ error: "Falta email" });
-                const tickets = await perfex.getSupportTickets(args.email);
-                return res.json(tickets);
+                return res.json(await perfex.getSupportTickets(args.email));
             case 'getTime':
             case 'get_time':
                 const timezone = args.timezone || "America/Bogota";
-                const time = new Date().toLocaleString("en-US", {
-                    timeZone: timezone,
-                    hour12: true,
-                    hour: 'numeric',
-                    minute: 'numeric'
-                });
+                const time = new Date().toLocaleString("en-US", { timeZone: timezone, hour12: true, hour: 'numeric', minute: 'numeric' });
                 return res.json({ current_time: time, timezone });
             case 'createTicket':
                 const ticket = await perfex.createTicket(args);
-                
-                // Si el ticket es urgente (Prioridad 3), enviamos WhatsApp al administrador (Lógica unificada)
                 if (ticket.success && parseInt(args.priority) === 3) {
                     const adminPhone = process.env.ADMIN_WHATSAPP_NUMBER; 
                     if (adminPhone) {
                         const subject = args.subject || 'Sin asunto';
-                        const alertMsg = `🚨 *TICKET URGENTE DETECTADO*\n\n*Asunto:* ${subject}\n*Cliente ID:* ${args.customerId}\n\nLa IA ha categorizado este caso como alta prioridad. Por favor, revisar el CRM. 🚀`;
-                        await whatsapp.sendText(adminPhone, alertMsg).catch(e => 
-                            logger.error(`Error enviando alerta WhatsApp al admin: ${e.message}`)
-                        );
+                        const alertMsg = `🚨 *TICKET URGENTE*\n\n*Asunto:* ${subject}\n*Cliente ID:* ${args.customerId}\n\nRevisar CRM. 🚀`;
+                        await whatsapp.sendText(adminPhone, alertMsg).catch(e => logger.error(`Error alerta admin: ${e.message}`));
                     }
                 }
                 return res.json(ticket);
             default:
                 logger.warn(`⚠️ Función no reconocida: ${action}`);
-                return res.status(200).json({ error: true, message: `La función ${action} no está implementada aún.` });
+                return res.status(200).json({ error: true, message: `La función ${action} no está implementada.` });
         }
     } catch (error) {
         logger.error(`❌ Error ejecutando acción ${action}: ${error.message}`);
-        res.status(200).json({ error: true, message: `Error al interactuar con el CRM: ${error.message}` });
+        res.status(200).json({ error: true, message: `Error CRM: ${error.message}` });
     }
-});
+}
+
+/**
+ * Rutas de Webhook y Plugin
+ */
+app.post('/', authenticateWebhook, handlePluginRequest);
+app.post('/ai/plugin', authenticateWebhook, handlePluginRequest);
 
 // Eliminación de rutas individuales obsoletas para favorecer el Dispatcher centralizado
 // Esto evita inconsistencias y facilita la depuración.
