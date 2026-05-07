@@ -3,19 +3,21 @@ const axios = require('axios');
 class GeminiService {
     constructor(apiKey, model) {
         this.apiKey = String(apiKey || '').trim();
-        // Cambiamos al 2.0 que es ultra-estable y rápido
+        // Usamos los modelos que confirmamos que tienes disponibles
         this.model = String(model || '').trim() || 'gemini-2.0-flash';
         this.baseUrl = 'https://generativelanguage.googleapis.com/v1beta';
     }
 
     isReady() {
-        return Boolean(this.apiKey);
+        return Boolean(this.apiKey) && !this.apiKey.includes('AIzaSyD4s3H'); // Evitar usar la llave bloqueada
     }
 
     async generateText(prompt) {
-        if (!this.isReady()) return null;
+        if (!this.isReady()) {
+            console.error("❌ ERROR: La API Key no está configurada o es la llave antigua bloqueada.");
+            return null;
+        }
         
-        // Probamos con la URL limpia
         const url = `${this.baseUrl}/models/${this.model}:generateContent?key=${this.apiKey}`;
 
         try {
@@ -35,17 +37,15 @@ class GeminiService {
             if (response.data && response.data.candidates && response.data.candidates[0]) {
                 return response.data.candidates[0].content.parts[0].text.trim();
             }
-            
-            console.error(`⚠️ Gemini respondió sin candidatos. Data:`, JSON.stringify(response.data));
             return null;
         } catch (error) {
             const errorBody = error.response?.data?.error?.message || error.message;
             console.error(`❌ ERROR GEMINI [${this.model}]:`, errorBody);
             
-            // Reintento automático con 1.5 si el 2.0 falla
-            if (this.model !== 'gemini-1.5-flash') {
-                console.log("🔄 Reintentando con gemini-1.5-flash...");
-                this.model = 'gemini-1.5-flash';
+            // Si el 2.0 falla por algo, saltamos al 2.5 que también tienes
+            if (this.model === 'gemini-2.0-flash') {
+                console.log("🔄 Reintentando con gemini-2.5-flash...");
+                this.model = 'gemini-2.5-flash';
                 return this.generateText(prompt);
             }
             return null;
