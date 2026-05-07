@@ -30,9 +30,10 @@ class WhatsAppService {
                 headers: form.getHeaders(),
                 timeout: 8000 // Reducido a 8s para evitar timeouts de plataforma
             });
+            console.log(`✅ WhatsApp enviado correctamente a ${recipient}`);
             return response.data;
         } catch (error) {
-            console.error('Error enviando mensaje de WhatsApp:', error.response?.data || error.message);
+            console.error(`❌ Error enviando WhatsApp a ${recipient}:`, error.response?.data || error.message);
             throw error;
         }
     }

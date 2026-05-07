@@ -116,25 +116,34 @@ async function handlePluginRequest(req, res) {
         // 2. Si NO hay acción detectable, es un mensaje directo o heartbeat
         if (!action) {
             // Intentar extraer mensaje y emisor de varias estructuras posibles
-            const msg = (req.body.data && req.body.data.message) || req.body.message;
+            const msg = (req.body.data && req.body.data.message) || req.body.message || "";
             const from = (req.body.data && (req.body.data.phone || req.body.data.wid)) || req.body.from;
 
             if (msg && from) {
-                logger.info(`💬 Mensaje recibido de ${from}`);
+                const cleanFrom = String(from).replace(/\D/g, '');
+                logger.info(`💬 Mensaje recibido de ${cleanFrom}: "${msg.substring(0, 30)}..."`);
                 const lowerMsg = msg.toLowerCase();
                 const keywordsFactura = ['factura', 'debo', 'pendiente', 'pagos', 'pagar', 'saldo'];
                 const keywordsProyecto = ['proyecto', 'proyectos', 'obra', 'tarea'];
                 
                 if (keywordsFactura.some(k => lowerMsg.includes(k)) || keywordsProyecto.some(k => lowerMsg.includes(k))) {
-                    const customer = await perfex.getCustomerByPhone(from);
+                    const customer = await perfex.getCustomerByPhone(cleanFrom);
                     if (customer.found) {
-                        // Consulta Rígida: Ejecutamos facturas y proyectos en paralelo para ganar velocidad
-                        const [invoices, projects] = await Promise.all([
-                            keywordsFactura.some(k => lowerMsg.includes(k)) ? perfex.getInvoices(customer.customerId) : Promise.resolve([]),
-                            keywordsProyecto.some(k => lowerMsg.includes(k)) ? perfex.getProjects(customer.customerId) : Promise.resolve([])
-                        ]);
+                        let invoices = [];
+                        let projects = [];
+                        try {
+                            // Consulta Rígida: Ejecutamos facturas y proyectos en paralelo para ganar velocidad
+                            const results = await Promise.all([
+                                keywordsFactura.some(k => lowerMsg.includes(k)) ? perfex.getInvoices(customer.customerId) : Promise.resolve([]),
+                                keywordsProyecto.some(k => lowerMsg.includes(k)) ? perfex.getProjects(customer.customerId) : Promise.resolve([])
+                            ]);
+                            invoices = Array.isArray(results[0]) ? results[0] : [];
+                            projects = Array.isArray(results[1]) ? results[1] : [];
+                        } catch (e) {
+                            logger.error(`❌ Error en consulta rígida a DB: ${e.message}`);
+                        }
 
-                        let fullResponse = `Hola ${customer.firstname || 'cliente'}! 🤖\n\n`;
+                        let fullResponse = `Hola ${customer.firstname || 'cliente'}! 🤖 He consultado tu información:\n\n`;
                         
                         if (Array.isArray(invoices) && invoices.length > 0) {
                             const pending = invoices.filter(inv => ['Por pagar', 'Vencida', 'Parcialmente pagada'].includes(inv.status_name));
@@ -142,25 +151,25 @@ async function handlePluginRequest(req, res) {
                                 fullResponse += `*📄 FACTURAS PENDIENTES:*\n` + 
                                     pending.map(inv => `• ${inv.number}: $${inv.total} (${inv.status_name})\n  🔗 Ver: ${inv.view_url}`).join('\n\n') + `\n\n`;
                             } else if (keywordsFactura.some(k => lowerMsg.includes(k))) {
-                                fullResponse += `*Facturas:* No registras pagos pendientes. ✅\n\n`;
+                                fullResponse += `*Facturas:* No registras pagos pendientes actualmente. ✅\n\n`;
                             }
                         }
 
                         if (Array.isArray(projects) && projects.length > 0) {
-                            fullResponse += `*🏗️ PROYECTOS ACTIVOS:*\n` +
+                            fullResponse += `*🏗️ PROYECTOS ACTIVOS:*\n` + 
                                 projects.map(p => `• ${p.name} (Estado: ${p.status})`).join('\n') + `\n`;
                         } else if (keywordsProyecto.some(k => lowerMsg.includes(k))) {
-                            fullResponse += `*Proyectos:* No tienes proyectos asignados actualmente.\n`;
+                            fullResponse += `*Proyectos:* No tienes proyectos asignados en este momento.\n`;
                         }
 
-                        await whatsapp.sendText(from, fullResponse);
+                        // Enviamos la respuesta rígida directamente al usuario
+                        await whatsapp.sendText(cleanFrom, fullResponse);
                         
-                        // Devolvemos una respuesta simple a la plataforma para que Gemini no se rompa
-                        const successMsg = "He enviado la información de facturas/proyectos directamente al chat del cliente.";
-                        return res.json({ status: "success", message: successMsg, response: successMsg, output: successMsg });
+                        // Devolvemos el texto bruto a la plataforma para que Gemini tenga contenido y no falle
+                        return res.json({ status: "success", response: fullResponse, message: fullResponse, output: fullResponse, final: true });
                     }
-                    const notFoundMsg = "No encontré tu número en nuestro CRM. Por favor, indícame tu correo para buscarte.";
-                    return res.json({ status: "success", message: notFoundMsg, response: notFoundMsg, output: notFoundMsg });
+                    const notFoundMsg = "Lo siento, no pude encontrar tu número registrado en nuestro sistema. ¿Podrías indicarme tu correo electrónico para buscarte?";
+                    return res.json({ status: "success", response: notFoundMsg, message: notFoundMsg, output: notFoundMsg });
                 }
                 // Si no es una pregunta de factura, simplemente acusamos recibo como texto
                 // Retornamos un campo 'response' claro para que el motor de IA tenga contenido
