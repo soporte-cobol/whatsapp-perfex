@@ -124,14 +124,33 @@ async function handlePluginRequest(req, res) {
                     const customer = await perfex.getCustomerByPhone(from);
                     if (customer.found) {
                         const invoices = await perfex.getInvoices(customer.customerId);
-                        return res.json({ invoices, customer, message: "Datos recuperados del CRM" });
+                        // Construir un resumen natural del estado de las facturas
+                        let summary = `Hola ${customer.firstname || 'cliente'}! `;
+                        if (invoices.length > 0) {
+                            const pending = invoices.filter(inv => inv.status_name === 'Por pagar' || inv.status_name === 'Vencida');
+                            if (pending.length > 0) {
+                                summary += `Tienes ${pending.length} factura(s) pendiente(s). Te las envío en un momento.`;
+                                // Enviar las facturas como un mensaje separado
+                                const invoiceDetails = pending.map(inv => `*Factura ${inv.number}*: $${inv.total} (${inv.status_name}). Ver: ${inv.view_url}`).join('\n');
+                                await whatsapp.sendText(from, summary + '\n' + invoiceDetails);
+                            } else {
+                                summary += `No tienes facturas pendientes de pago.`;
+                                await whatsapp.sendText(from, summary);
+                            }
+                        } else {
+                            summary += `No encontré facturas registradas para tu cuenta.`;
+                            await whatsapp.sendText(from, summary);
+                        }
+                        // Devolvemos una respuesta simple a la plataforma para que Gemini no se rompa
+                        return res.json({ status: "success", message: "Información de facturas enviada directamente." });
                     }
+                    return res.json({ status: "success", message: "No pude identificarte para buscar facturas. Por favor, dime tu correo electrónico." });
                 }
-                // Respuesta segura para que Gemini no se rompa
-                return res.json({ status: "success", received: true });
+                // Si no es una pregunta de factura, simplemente acusamos recibo como texto
+                return res.json({ status: "success", message: `Mensaje recibido: "${msg.substring(0, 50)}..."` });
             }
             
-            return res.json({ status: "online", info: "No action detected" });
+            return res.json({ status: "success", message: "Heartbeat processed" });
         }
 
         logger.info(`🤖 IA llamando a función: ${action}`, { args });
