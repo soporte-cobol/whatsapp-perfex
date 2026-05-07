@@ -91,8 +91,11 @@ const authenticateWebhook = (req, res, next) => {
  */
 async function handlePluginRequest(req, res) {
     // 1. Intentamos detectar si es una LLAMADA DE FUNCIÓN (Plugin/Tool Call) primero
-    let action = req.body.action || req.body.function || (req.body.calls && req.body.calls[0]?.function?.name);
-    let args = req.body.arguments || req.body.params || (req.body.calls && req.body.calls[0]?.function?.arguments) || req.body;
+    let action = req.body.action || req.body.function || req.body.name || req.body.method || 
+                 (req.body.calls && req.body.calls[0]?.function?.name);
+
+    let args = req.body.arguments || req.body.args || req.body.params || req.body.data ||
+               (req.body.calls && req.body.calls[0]?.function?.arguments) || req.body;
 
     // 2. Si NO hay una acción de plugin, verificamos si es una notificación de evento de WhatsApp
     if (!action) {
@@ -101,8 +104,8 @@ async function handlePluginRequest(req, res) {
             return res.status(200).json({ status: 'ok', type: 'event_received' });
         }
         
-        logger.info('ℹ️ Petición sin acción ni mensaje detectable (posible heartbeat)');
-        return res.status(200).json({ status: 'ok', message: 'No action detected' });
+        logger.info('ℹ️ Petición sin acción detectable. Cuerpo completo para análisis:', { body: req.body });
+        return res.status(200).json({ status: 'ok', message: 'No action detected', request_received: true });
     }
 
     // Log de ejecución de Plugin
@@ -128,26 +131,39 @@ async function handlePluginRequest(req, res) {
                 if (!customerByEmail.found) logger.info(`🔍 Cliente no encontrado por email: ${args.email}`);
                 return res.json(customerByEmail);
             case 'identifyByVat':
-                return res.json(await perfex.getCustomerByVat(args.vat));
+                const resVat = await perfex.getCustomerByVat(args.vat || args.tax_number);
+                logger.info('📤 Respuesta Vat:', resVat);
+                return res.json(resVat);
             case 'getInvoices':
-                if (!args.customerId) return res.status(400).json({ error: "Falta customerId" });
-                return res.json(await perfex.getInvoices(parseInt(args.customerId)));
+                const cidInv = parseInt(args.customerId || args.id || args.customer_id);
+                if (!cidInv) return res.json({ error: "ID de cliente no válido o ausente para consultar facturas" });
+                const invoices = await perfex.getInvoices(cidInv);
+                logger.info(`📤 Enviando ${invoices.length} facturas`);
+                return res.json({ invoices });
             case 'getProjects':
-                if (!args.customerId) return res.status(400).json({ error: "Falta customerId" });
-                return res.json(await perfex.getProjects(parseInt(args.customerId)));
+                const cidProj = parseInt(args.customerId || args.id || args.customer_id);
+                if (!cidProj) return res.json({ error: "ID de cliente no válido para consultar proyectos" });
+                const projects = await perfex.getProjects(cidProj);
+                logger.info(`📤 Enviando ${projects.length} proyectos`);
+                return res.json({ projects });
             case 'getEstimates':
-                if (!args.customerId) return res.status(400).json({ error: "Falta customerId" });
-                return res.json(await perfex.getEstimates(parseInt(args.customerId)));
+                const cidEst = parseInt(args.customerId || args.id || args.customer_id);
+                if (!cidEst) return res.json({ error: "ID de cliente no válido para consultar presupuestos" });
+                const estimates = await perfex.getEstimates(cidEst);
+                return res.json({ estimates });
             case 'getProposals':
-                if (!args.customerId) return res.status(400).json({ error: "Falta customerId" });
-                return res.json(await perfex.getProposals(parseInt(args.customerId)));
+                const cidProp = parseInt(args.customerId || args.id || args.customer_id);
+                if (!cidProp) return res.json({ error: "ID de cliente no válido para consultar propuestas" });
+                const proposals = await perfex.getProposals(cidProp);
+                return res.json({ proposals });
             case 'createContact':
                 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-                if (args.email && !emailRegex.test(args.email)) return res.status(400).json({ error: 'Formato de email no válido' });
+                if (args.email && !emailRegex.test(args.email)) return res.json({ error: 'Formato de email no válido' });
                 return res.json(await perfex.createContact(args));
             case 'getSupportTickets':
-                if (!args.email) return res.status(400).json({ error: "Falta email" });
-                return res.json(await perfex.getSupportTickets(args.email));
+                if (!args.email) return res.json({ error: "Falta email para consultar tickets" });
+                const tickets = await perfex.getSupportTickets(args.email);
+                return res.json({ tickets });
             case 'getTime':
             case 'get_time':
                 const timezone = args.timezone || "America/Bogota";
