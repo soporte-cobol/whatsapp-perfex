@@ -5,6 +5,33 @@ const path = require('path');
 const fs = require('fs');
 const PerfexService = require('./perfexService');
 const WhatsAppService = require('./whatsappService');
+const GeminiService = require('./geminiService');
+
+function _asNonEmptyText(value) {
+    const text = (value === undefined || value === null) ? '' : String(value);
+    const trimmed = text.trim();
+    return trimmed.length ? trimmed : null;
+}
+
+function sendCobolJson(res, payload) {
+    const safePayload = payload && typeof payload === 'object' ? { ...payload } : {};
+
+    const candidateText =
+        _asNonEmptyText(safePayload.response) ||
+        _asNonEmptyText(safePayload.message) ||
+        _asNonEmptyText(safePayload.output) ||
+        _asNonEmptyText(safePayload.text) ||
+        _asNonEmptyText(safePayload.result) ||
+        _asNonEmptyText(safePayload.status) ||
+        "OK";
+
+    if (!_asNonEmptyText(safePayload.response)) safePayload.response = candidateText;
+    if (!_asNonEmptyText(safePayload.message)) safePayload.message = candidateText;
+    if (!_asNonEmptyText(safePayload.output)) safePayload.output = candidateText;
+    if (!_asNonEmptyText(safePayload.text)) safePayload.text = candidateText;
+
+    return res.json(safePayload);
+}
 
 // Asegurar que la carpeta de logs exista
 const logDir = path.join(__dirname, 'logs');
@@ -55,6 +82,11 @@ const whatsapp = new WhatsAppService(
     process.env.WHATSAPP_ACCOUNT_ID
 );
 
+const gemini = new GeminiService(
+    process.env.GEMINI_API_KEY,
+    process.env.GEMINI_MODEL
+);
+
 /**
  * Health Check Endpoint
  * Útil para monitoreo y para validar que el servicio está arriba.
@@ -62,7 +94,7 @@ const whatsapp = new WhatsAppService(
 app.get('/health', async (req, res) => {
     const perfexAlive = await perfex.checkHealth().catch(() => false);
     
-    res.json({ 
+    return sendCobolJson(res, { 
         status: 'online', 
         timestamp: new Date().toISOString(),
         config: {
@@ -94,7 +126,7 @@ const authenticateWebhook = (req, res, next) => {
     logger.error(debugMsg, { path: req.path, ip: req.ip });
     
     // Devolvemos 200 con error interno para evitar que Gemini rompa por "Empty Content"
-    return res.status(200).json({ status: "error", message: 'Error de autenticación: Las credenciales del webhook no coinciden.' });
+    return sendCobolJson(res.status(200), { status: "error", message: 'Error de autenticación: Las credenciales del webhook no coinciden.' });
 };
 
 /**
@@ -165,11 +197,38 @@ async function handlePluginRequest(req, res) {
 
                         if (fullResponse.length < 50) fullResponse += "\n✅ No tienes deudas ni proyectos pendientes.";
 
-                        // Enviamos WhatsApp directamente (Consulta Rígida)
-                        await whatsapp.sendText(cleanFrom, fullResponse).catch(e => logger.error(`Error enviando WhatsApp rígido: ${e.message}`));
+                        // 1) Respuesta natural (IA) + 2) respuesta rígida (DB)
+                        const userQuestion = String(msg || '').trim();
+                        const rigidAnswer = String(fullResponse || '').trim();
+
+                        let aiAnswer = null;
+                        if (gemini.isReady()) {
+                            const prompt = [
+                                "Eres un asistente de soporte de un CRM (Perfex).",
+                                "Responde en español, amable y muy breve (1-3 frases).",
+                                "No inventes datos: usa SOLO la información del bloque 'DATOS CRM'.",
+                                "",
+                                `PREGUNTA DEL CLIENTE: ${userQuestion || "(sin texto)"}`,
+                                "",
+                                "DATOS CRM:",
+                                rigidAnswer || "(sin datos)"
+                            ].join("\n");
+
+                            try {
+                                aiAnswer = await gemini.generateText(prompt);
+                            } catch (e) {
+                                logger.error(`Error IA Gemini: ${e.message}`);
+                                aiAnswer = null;
+                            }
+                        }
+
+                        if (aiAnswer) {
+                            await whatsapp.sendText(cleanFrom, aiAnswer).catch(e => logger.error(`Error enviando WhatsApp IA: ${e.message}`));
+                        }
+                        await whatsapp.sendText(cleanFrom, rigidAnswer).catch(e => logger.error(`Error enviando WhatsApp rígido: ${e.message}`));
 
                         const ack = "Información enviada correctamente.";
-                        return res.json({ 
+                        return sendCobolJson(res, { 
                             status: "success", 
                             response: ack, 
                             message: ack, 
@@ -180,15 +239,15 @@ async function handlePluginRequest(req, res) {
                         });
                     }
                     const notFoundMsg = "Lo siento, no pude encontrar tu número en nuestro sistema. ¿Me podrías dar tu correo electrónico para buscarte mejor?";
-                    return res.json({ status: "success", response: notFoundMsg, message: notFoundMsg, text: notFoundMsg });
+                    return sendCobolJson(res, { status: "success", response: notFoundMsg, message: notFoundMsg, text: notFoundMsg });
                 }
                 // Si no es una pregunta de factura, simplemente acusamos recibo como texto
                 // Retornamos un campo 'response' claro para que el motor de IA tenga contenido
                 const welcomeMsg = "Hola! Soy tu asistente virtual. ¿En qué puedo ayudarte hoy con tus facturas o proyectos?";
-                return res.json({ status: "success", response: welcomeMsg, message: welcomeMsg, text: welcomeMsg });
+                return sendCobolJson(res, { status: "success", response: welcomeMsg, message: welcomeMsg, text: welcomeMsg });
             }
             
-            return res.json({ status: "success", message: "Heartbeat processed", response: "Heartbeat processed", text: "Heartbeat processed" });
+            return sendCobolJson(res, { status: "success", message: "Heartbeat processed", response: "Heartbeat processed", text: "Heartbeat processed" });
         }
 
         logger.info(`🤖 IA llamando a función: ${action}`, { args });
@@ -197,50 +256,50 @@ async function handlePluginRequest(req, res) {
             case 'identifyCustomer':
                 const customer = await perfex.getCustomerByPhone(args.phone);
                 const idMsg = customer.found ? `Identificado: ${customer.firstname}` : "No encontrado";
-                return res.json({ ...customer, response: idMsg, message: idMsg, output: idMsg });
+                return sendCobolJson(res, { ...customer, response: idMsg, message: idMsg, output: idMsg });
             case 'identifyByEmail':
                 const customerByEmail = await perfex.getCustomerByEmail(args.email);
                 const emailMsg = customerByEmail.found ? `Identificado: ${customerByEmail.firstname}` : "Email no encontrado";
-                return res.json({ ...customerByEmail, response: emailMsg, message: emailMsg, output: emailMsg });
+                return sendCobolJson(res, { ...customerByEmail, response: emailMsg, message: emailMsg, output: emailMsg });
             case 'identifyByVat':
                 const customerVat = await perfex.getCustomerByVat(args.vat || args.tax_number);
                 const vatMsg = customerVat.found ? `Identificado: ${customerVat.company}` : "NIT no encontrado";
-                return res.json({ ...customerVat, response: vatMsg, message: vatMsg, output: vatMsg });
+                return sendCobolJson(res, { ...customerVat, response: vatMsg, message: vatMsg, output: vatMsg });
             case 'getInvoices':
                 const cidInv = parseInt(args.customerId || args.id || args.customer_id || (args.customer && args.customer.customerId));
-                if (!cidInv) return res.status(200).json({ error: true, response: "Falta ID de cliente", message: "Falta ID de cliente", output: "Falta ID de cliente" });
+                if (!cidInv) return sendCobolJson(res.status(200), { error: true, response: "Falta ID de cliente", message: "Falta ID de cliente", output: "Falta ID de cliente" });
                 const invoices = await perfex.getInvoices(cidInv);
                 const invResp = `Encontradas ${Array.isArray(invoices) ? invoices.length : 0} facturas.`;
-                return res.json({ status: "success", response: invResp, message: invResp, output: invResp, invoices });
+                return sendCobolJson(res, { status: "success", response: invResp, message: invResp, output: invResp, invoices });
             case 'getProjects':
                 const cidProj = parseInt(args.customerId || args.id || args.customer_id);
                 const projects = cidProj ? await perfex.getProjects(cidProj) : [];
                 const projResp = `Encontrados ${projects.length} proyectos.`;
-                return res.json({ status: "success", response: projResp, message: projResp, output: projResp, projects });
+                return sendCobolJson(res, { status: "success", response: projResp, message: projResp, output: projResp, projects });
             case 'getEstimates':
                 const cidEst = parseInt(args.customerId || args.id || args.customer_id);
                 const estimates = cidEst ? await perfex.getEstimates(cidEst) : [];
                 const estResp = `Encontrados ${estimates.length} presupuestos.`;
-                return res.json({ status: "success", response: estResp, message: estResp, output: estResp, estimates });
+                return sendCobolJson(res, { status: "success", response: estResp, message: estResp, output: estResp, estimates });
             case 'getProposals':
                 const cidProp = parseInt(args.customerId || args.id || args.customer_id);
                 const proposals = cidProp ? await perfex.getProposals(cidProp) : [];
                 const propMsg = `Encontradas ${proposals.length} propuestas.`;
-                return res.json({ status: "success", response: propMsg, message: propMsg, output: propMsg, proposals });
+                return sendCobolJson(res, { status: "success", response: propMsg, message: propMsg, output: propMsg, proposals });
             case 'createContact':
                 const newContact = await perfex.createContact(args);
                 const contactMsg = newContact.success ? "Contacto creado exitosamente." : "Error al crear contacto.";
-                return res.json({ ...newContact, response: contactMsg, message: contactMsg, output: contactMsg });
+                return sendCobolJson(res, { ...newContact, response: contactMsg, message: contactMsg, output: contactMsg });
             case 'getSupportTickets':
                 const tickets = args.email ? await perfex.getSupportTickets(args.email) : [];
                 const tickMsg = `Encontrados ${tickets.length} tickets.`;
-                return res.json({ status: "success", response: tickMsg, message: tickMsg, output: tickMsg, tickets });
+                return sendCobolJson(res, { status: "success", response: tickMsg, message: tickMsg, output: tickMsg, tickets });
             case 'getTime':
             case 'get_time':
                 const timezone = args.timezone || "America/Bogota";
                 const time = new Date().toLocaleString("en-US", { timeZone: timezone, hour12: true, hour: 'numeric', minute: 'numeric' });
                 const timeMsg = `Hora actual: ${time}`;
-                return res.json({ current_time: time, timezone, response: timeMsg, message: timeMsg, output: timeMsg });
+                return sendCobolJson(res, { current_time: time, timezone, response: timeMsg, message: timeMsg, output: timeMsg });
             case 'createTicket':
                 const ticket = await perfex.createTicket(args);
                 if (ticket.success && parseInt(args.priority) === 3) {
@@ -250,16 +309,16 @@ async function handlePluginRequest(req, res) {
                     }
                 }
                 const ticketMsg = ticket.success ? `Ticket #${ticket.ticketid} creado exitosamente.` : (ticket.error || "Error al crear el ticket.");
-                return res.json({ ...ticket, response: ticketMsg, message: ticketMsg, output: ticketMsg });
+                return sendCobolJson(res, { ...ticket, response: ticketMsg, message: ticketMsg, output: ticketMsg });
             default:
                 logger.warn(`⚠️ Función no reconocida: ${action}`);
-                return res.status(200).json({ error: true, response: `La función ${action} no está implementada.`, message: `La función ${action} no está implementada.`, output: `La función ${action} no está implementada.` });
+                return sendCobolJson(res.status(200), { error: true, response: `La función ${action} no está implementada.`, message: `La función ${action} no está implementada.`, output: `La función ${action} no está implementada.` });
         }
     } catch (error) {
         const errorMsg = `❌ Fallo crítico en Dispatcher: ${error.message}`;
         logger.error(errorMsg, { stack: error.stack });
         await sendDebug(errorMsg);
-        res.status(200).json({ error: true, response: `Error al procesar la solicitud: ${error.message}` });
+        return sendCobolJson(res.status(200), { error: true, response: `Error al procesar la solicitud: ${error.message}` });
     }
 }
 
