@@ -29,6 +29,16 @@ class PerfexService {
         }
     }
 
+    async checkHealth() {
+        try {
+            // Intentamos una acción inexistente o básica para ver si el bridge responde 401 o 200
+            const response = await axios.get(`${this.baseUrl}/perfex_bridge.php`, { headers: this.headers });
+            return response.status === 200;
+        } catch (error) {
+            return error.response?.status === 200;
+        }
+    }
+
     async getCustomerByPhone(phone) {
         return this._request('get', { action: 'get_customer_by_phone', phone });
     }

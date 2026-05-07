@@ -22,13 +22,17 @@ const whatsapp = new WhatsAppService(
  * Útil para monitoreo y para validar que el servicio está arriba.
  */
 app.get('/health', async (req, res) => {
+    const perfexAlive = await perfex.checkHealth().catch(() => false);
+    
     res.json({ 
         status: 'online', 
         timestamp: new Date().toISOString(),
         config: {
             perfex_url: !!process.env.PERFEX_BASE_URL,
-            whatsapp_ready: !!process.env.WHATSAPP_API_SECRET
-        }
+            whatsapp_ready: !!process.env.WHATSAPP_API_SECRET,
+            perfex_connectivity: perfexAlive
+        },
+        node_version: process.version
     });
 });
 
