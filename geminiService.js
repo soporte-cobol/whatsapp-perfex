@@ -3,8 +3,14 @@ const axios = require('axios');
 class GeminiService {
     constructor(apiKey) {
         this.apiKey = String(apiKey || '').trim();
-        // Volvemos al modelo 2.0 que es el que tu llave soporta
-        this.model = 'gemini-2.0-flash'; 
+        // Ponemos el 2.5-flash de primero, ya que es el que te funcionó perfectamente
+        this.models = [
+            'gemini-2.5-flash', 
+            'gemini-2.0-flash',
+            'gemini-2.0-flash-exp',
+            'gemini-1.5-flash-latest'
+        ];
+        this.currentModelIndex = 0;
         this.baseUrl = 'https://generativelanguage.googleapis.com/v1beta';
     }
 
@@ -15,34 +21,31 @@ class GeminiService {
     async generateText(prompt) {
         if (!this.isReady()) return null;
         
-        const url = `${this.baseUrl}/models/${this.model}:generateContent?key=${this.apiKey}`;
+        const model = this.models[this.currentModelIndex];
+        const url = `${this.baseUrl}/models/${model}:generateContent?key=${this.apiKey}`;
 
         try {
             const requestBody = {
                 contents: [{ parts: [{ text: prompt }] }],
                 generationConfig: {
                     temperature: 0.7,
-                    maxOutputTokens: 1024,
+                    maxOutputTokens: 1000,
                 }
             };
 
             const response = await axios.post(url, requestBody, {
                 headers: { 'Content-Type': 'application/json' },
-                timeout: 15000
+                timeout: 12000
             });
 
             if (response.data && response.data.candidates && response.data.candidates[0]) {
-                const text = response.data.candidates[0].content.parts[0].text;
-                return text.trim();
+                return response.data.candidates[0].content.parts[0].text.trim();
             }
             return null;
         } catch (error) {
-            const errorBody = error.response?.data?.error?.message || error.message;
-            console.error(`❌ ERROR GEMINI [${this.model}]:`, errorBody);
-            
-            // Si el 2.0-flash falla por cuotas, intentamos con el 2.0-flash-exp
-            if (this.model === 'gemini-2.0-flash') {
-                this.model = 'gemini-2.0-flash-exp';
+            console.warn(`⚠️ MODELO [${model}] FALLÓ. Probando siguiente...`);
+            if (this.currentModelIndex < this.models.length - 1) {
+                this.currentModelIndex++;
                 return this.generateText(prompt);
             }
             return null;

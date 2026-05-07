@@ -97,4 +97,7 @@ app.post('/ai/plugin', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 LAURA (MODO RESCATE) ONLINE | PUERTO ${PORT}`));
+    app.listen(PORT, () => {
+        console.log(`\n🚀 LAURA (MODO DIOS 3.1) ONLINE | PUERTO ${PORT}`);
+        console.log(`-----------------------------------------\n`);
+    });
