@@ -63,12 +63,15 @@ app.get('/health', async (req, res) => {
 
 // Middleware de seguridad para los endpoints de Cobol
 const authenticateWebhook = (req, res, next) => {
-    const apiKey = req.headers['x-api-key'];
-    if (!apiKey || apiKey !== process.env.WEBHOOK_API_KEY) {
-        logger.warn(`🚫 Intento de acceso no autorizado desde: ${req.ip}`);
-        return res.status(401).json({ error: 'No autorizado. Falta o es incorrecta la X-API-KEY' });
+    const apiKey = req.headers['x-api-key'] || req.headers['X-API-KEY'];
+    const bodySecret = req.body.secret;
+
+    if ((apiKey && apiKey === process.env.WEBHOOK_API_KEY) || (bodySecret && bodySecret === process.env.WHATSAPP_API_SECRET)) {
+        return next();
     }
-    next();
+
+    logger.warn(`🚫 Intento de acceso no autorizado desde: ${req.ip}`, { headers: req.headers, body: req.body });
+    return res.status(401).json({ error: 'No autorizado.' });
 };
 
 /**
@@ -76,15 +79,26 @@ const authenticateWebhook = (req, res, next) => {
  * Si la plataforma solo te permite una URL, usa esta: https://wa.gmgroup.com.co/ai/plugin
  */
 app.post('/ai/plugin', authenticateWebhook, async (req, res) => {
-    // Log crítico para ver qué está enviando la plataforma de Cobol/Gemini
-    logger.info('📥 Petición entrante desde Cobol:', { body: req.body });
+    // Log crítico
+    logger.info('📥 Petición entrante:', { body: req.body });
+
+    // 1. Detectar si es una notificación de evento de WhatsApp (Webhook URL)
+    if (req.body.message && req.body.from) {
+        logger.info(`💬 Evento de mensaje recibido de ${req.body.from}`);
+        return res.json({ status: 'ok', type: 'event_received' });
+    }
 
     // Intentamos obtener el nombre de la función y argumentos de varias formas comunes
     let action = req.body.action || req.body.function || (req.body.calls && req.body.calls[0]?.function?.name);
     let args = req.body.arguments || req.body.params || (req.body.calls && req.body.calls[0]?.function?.arguments) || req.body;
 
-    // Si args llega como un string (común en Gemini Function Calling), lo parseamos
-    if (typeof args === 'string') {
+    // Si no hay acción ni es un mensaje, probablemente sea un latido (heartbeat) o estructura desconocida
+    if (!action) {
+        return res.json({ status: 'ok', message: 'No action detected' });
+    }
+
+    // Si args llega como un string JSON, lo parseamos
+    if (typeof args === 'string' && args.trim().startsWith('{')) {
         try {
             args = JSON.parse(args);
         } catch (e) {
@@ -141,6 +155,16 @@ app.post('/ai/plugin', authenticateWebhook, async (req, res) => {
                 if (!args.email) return res.status(400).json({ error: "Falta email" });
                 const tickets = await perfex.getSupportTickets(args.email);
                 return res.json(tickets);
+            case 'getTime':
+            case 'get_time':
+                const timezone = args.timezone || "America/Bogota";
+                const time = new Date().toLocaleString("en-US", {
+                    timeZone: timezone,
+                    hour12: true,
+                    hour: 'numeric',
+                    minute: 'numeric'
+                });
+                return res.json({ current_time: time, timezone });
             case 'createTicket':
                 const ticket = await perfex.createTicket(args);
                 
@@ -166,24 +190,6 @@ app.post('/ai/plugin', authenticateWebhook, async (req, res) => {
 
 // Eliminación de rutas individuales obsoletas para favorecer el Dispatcher centralizado
 // Esto evita inconsistencias y facilita la depuración.
-
-/**
- * Endpoint para la hora (Migrado a estructura de plugin)
- */
-app.post('/ai/get-time', authenticateWebhook, (req, res) => {
-    const { timezone } = req.body;
-    try {
-        const time = new Date().toLocaleString("en-US", {
-            timeZone: timezone || "America/Bogota",
-            hour12: true,
-            hour: 'numeric',
-            minute: 'numeric'
-        });
-        res.json({ current_time: time, timezone: timezone || "America/Bogota" });
-    } catch (error) {
-        res.status(400).json({ error: "Zona horaria no válida" });
-    }
-});
 
 // Manejador de errores global
 app.use((err, req, res, next) => {
