@@ -9,6 +9,7 @@ class PerfexService {
         this.headers = {
             'Authorization': apiToken
         };
+        console.log(`[PerfexService] Initialized with token starting: ${apiToken.substring(0, 8)}...`);
     }
 
     async _request(method, params = {}, data = null) {
