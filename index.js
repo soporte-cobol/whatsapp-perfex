@@ -183,22 +183,27 @@ async function handlePluginRequest(req, res) {
                 return res.json(await perfex.getCustomerByVat(args.vat || args.tax_number));
             case 'getInvoices':
                 const cidInv = parseInt(args.customerId || args.id || args.customer_id || (args.customer && args.customer.customerId));
-                if (!cidInv) return res.json({ error: true, response: "Falta ID de cliente" });
+                if (!cidInv) return res.status(200).json({ error: true, response: "Falta ID de cliente" });
                 const invoices = await perfex.getInvoices(cidInv);
                 return res.json({ invoices });
             case 'getProjects':
                 const cidProj = parseInt(args.customerId || args.id || args.customer_id);
-                return res.json({ projects: cidProj ? await perfex.getProjects(cidProj) : [] });
+                const projects = cidProj ? await perfex.getProjects(cidProj) : [];
+                return res.json({ projects });
             case 'getEstimates':
                 const cidEst = parseInt(args.customerId || args.id || args.customer_id);
-                return res.json({ estimates: cidEst ? await perfex.getEstimates(cidEst) : [] });
+                const estimates = cidEst ? await perfex.getEstimates(cidEst) : [];
+                return res.json({ estimates });
             case 'getProposals':
                 const cidProp = parseInt(args.customerId || args.id || args.customer_id);
-                return res.json({ proposals: cidProp ? await perfex.getProposals(cidProp) : [] });
+                const proposals = cidProp ? await perfex.getProposals(cidProp) : [];
+                return res.json({ proposals });
             case 'createContact':
-                return res.json(await perfex.createContact(args));
+                const newContact = await perfex.createContact(args);
+                return res.json(newContact);
             case 'getSupportTickets':
-                return res.json({ tickets: args.email ? await perfex.getSupportTickets(args.email) : [] });
+                const tickets = args.email ? await perfex.getSupportTickets(args.email) : [];
+                return res.json({ tickets });
             case 'getTime':
             case 'get_time':
                 const timezone = args.timezone || "America/Bogota";
@@ -249,10 +254,9 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    logger.info(`🚀 Webhook de IA corriendo en puerto ${PORT}`);
-    // Logs de verificación al arrancar para asegurar que el .env cargó bien
-    const waSecret = (process.env.WHATSAPP_API_SECRET || 'N/A').trim().substring(0, 8);
-    const webKey = (process.env.WEBHOOK_API_KEY || 'N/A').trim().substring(0, 8);
-    logger.info(`🔑 WhatsApp API Secret: "${waSecret}..." | Webhook Key: "${webKey}..."`);
-    logger.info(`🔗 Endpoints listos para configurar en el panel de Cobol`);
+    const waSecret = (process.env.WHATSAPP_API_SECRET || '').trim().substring(0, 6);
+    const webKey = (process.env.WEBHOOK_API_KEY || '').trim().substring(0, 6);
+    
+    process.stdout.write(`🚀 Servidor listo en puerto ${PORT}\n`);
+    process.stdout.write(`🔑 WA: ${waSecret}... | WEB: ${webKey}...\n`);
 });

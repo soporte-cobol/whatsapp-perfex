@@ -29,11 +29,7 @@ class PerfexService {
             const response = await axios(config);
             return response.data;
         } catch (error) {
-            const errorMsg = error.response?.data?.error || error.message;
-            console.error(`❌ Error en PerfexService (${params.action || 'POST'}):`, errorMsg);
-            if (error.response?.data?.path_buscado) {
-                console.error(`📂 Path buscado en servidor:`, error.response.data.path_buscado);
-            }
+            // Dejamos que el Dispatcher capture y loguee el error con winston
             throw error;
         }
     }
@@ -44,19 +40,13 @@ class PerfexService {
             const response = await axios.get(url, { 
                 headers: this.headers,
                 params: {
-                    token: this.headers.Authorization
+                    token: this.apiToken
                 },
                 timeout: 5000 
             });
             return response.status === 200 || response.status === 401;
         } catch (error) {
-            if (error.response) {
-                console.log(`📡 Bridge (${this.baseUrl}) responde con status: ${error.response.status}`);
-                return error.response.status === 200 || error.response.status === 401;
-            } else {
-                console.error(`❌ Error de red en ${this.baseUrl}: ${error.message}`);
-                return false;
-            }
+            return error.response && (error.response.status === 200 || error.response.status === 401);
         }
     }
 
