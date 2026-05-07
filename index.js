@@ -35,8 +35,8 @@ app.use(express.urlencoded({ extended: true }));
 
 // Inicialización de servicios
 const perfex = new PerfexService(
-    process.env.PERFEX_BASE_URL,
-    process.env.PERFEX_API_TOKEN
+    (process.env.PERFEX_BASE_URL || '').trim(),
+    (process.env.PERFEX_API_TOKEN || '').trim()
 );
 
 const whatsapp = new WhatsAppService(
@@ -139,14 +139,14 @@ async function handlePluginRequest(req, res) {
                         
                         await whatsapp.sendText(from, rawData).catch(e => logger.error("Error envío directo:", e.message));
 
-                        // Respondemos a Gemini con TEXTO SIMPLE para que no se rompa
+                        // Respondemos a Gemini con TEXTO para que no se rompa
                         return res.json({ text: "He enviado los detalles de tus facturas directamente a este chat. ¿Hay algo más en lo que pueda ayudarte?" });
                     }
                 }
-                // Si no hay intención clara, devolvemos un texto neutro
+                // Si no hay intención clara, devolvemos un texto neutro para Gemini
                 return res.json({ text: "Recibido. ¿En qué puedo ayudarte con respecto a tus viajes o facturación?" });
             }
-            return res.json({ status: "online" });
+            return res.json({ status: "online", text: "Servidor operativo." });
         }
 
         logger.info(`🤖 IA llamando a función: ${action}`, { args });
@@ -199,8 +199,11 @@ async function handlePluginRequest(req, res) {
                 return res.status(200).json({ error: true, message: `La función ${action} no está implementada.` });
         }
     } catch (error) {
-        logger.error(`❌ Fallo crítico en Dispatcher: ${error.message}`, { stack: error.stack });
-        res.status(200).json({ error: true, message: `Error CRM: ${error.message}` });
+        logger.error(`❌ Fallo en Dispatcher: ${error.message}`);
+        // Siempre devolver un campo 'text' para que Gemini no lance el error "Each Content should have at least one part"
+        res.status(200).json({ 
+            text: "Lo siento, tuve un problema al conectarme con el sistema administrativo. Por favor, intenta de nuevo en unos minutos o proporciona tu correo." 
+        });
     }
 }
 
