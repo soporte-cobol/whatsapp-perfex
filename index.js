@@ -30,7 +30,7 @@ app.post('/ai/plugin', async (req, res) => {
 
         let customer = { found: false };
 
-        // 1. Identificación Profunda
+        // 1. Identificación Multicanal
         const emailMatch = msg.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
         if (emailMatch) customer = await perfex.getCustomerByEmail(emailMatch[0]).catch(() => ({ found: false }));
         
@@ -41,69 +41,85 @@ app.post('/ai/plugin', async (req, res) => {
 
         if (!customer.found) {
             customer = await perfex.getCustomerByPhone(cleanFrom).catch(() => ({ found: false }));
-            if (!customer.found && cleanFrom.length > 10) {
-                customer = await perfex.getCustomerByPhone(cleanFrom.slice(-10)).catch(() => ({ found: false }));
-            }
         }
 
         if (customer.found) {
-            console.log(`✅ IDENTIFICADO: ${customer.firstname}`);
+            console.log(`✅ IDENTIFICADO: ${customer.firstname} (${customer.company})`);
             
+            // 2. Carga de datos contextuales de viaje
             const results = await Promise.allSettled([
-                perfex.getInvoices(customer.customerId, 5),
-                perfex.getTickets(customer.email || "", 3)
+                perfex.getInvoices(customer.customerId),
+                perfex.getProjects(customer.customerId),
+                perfex.getTickets(customer.email || "")
             ]);
 
             const invoices = results[0].status === 'fulfilled' ? results[0].value : [];
-            const pending = invoices.filter(i => i.status != 2 && i.status != 4 && i.status != 5);
+            const projects = results[1].status === 'fulfilled' ? results[1].value : [];
+            const tickets = results[2].status === 'fulfilled' ? results[2].value : [];
+
+            const pendingInvoices = invoices.filter(i => i.status != 2 && i.status != 4 && i.status != 5);
             
-            let rigidMsg = `*RESUMEN DE CUENTA GM GROUP* 🏛️\n`;
-            if (pending.length > 0) {
-                rigidMsg += `\n📄 *Facturas Pendientes:*`;
-                pending.forEach(i => rigidMsg += `\n• ${i.number}: $${i.total}\n  🔗 ${i.view_url}`);
+            // Construcción del mensaje rígido (resumen técnico)
+            let rigidMsg = `*ESTADO DE CUENTA GM GROUP* 🏛️\n`;
+            if (projects.length > 0) {
+                rigidMsg += `\n✈️ *Tus Planes de Viaje:*`;
+                projects.forEach(p => rigidMsg += `\n• ${p.travel_plan}`);
+            }
+            if (pendingInvoices.length > 0) {
+                rigidMsg += `\n\n📄 *Facturas Pendientes:*`;
+                pendingInvoices.forEach(i => rigidMsg += `\n• ${i.number}: $${i.total}\n  🔗 ${i.view_url}`);
             }
 
-            // IA Laura
+            // 3. IA Laura con contexto de Viajes
             let aiMsg = null;
             if (gemini.isReady()) {
                 const fullPrompt = `
                 ${aiConfig.PRE_PROMPT}
-                BASE DE CONOCIMIENTOS: ${aiConfig.KNOWLEDGE_BASE}
-                CLIENTE: ${customer.firstname} ${customer.lastname}
-                DATA CRM: ${rigidMsg}
-                PREGUNTA: "${msg}"
+                
+                BASE DE CONOCIMIENTO AGENCIA:
+                ${aiConfig.KNOWLEDGE_BASE}
+                
+                DATOS DEL CLIENTE EN GM GROUP:
+                - Nombre: ${customer.firstname}
+                - Empresa: ${customer.company}
+                - Planes de Viaje Actuales: ${JSON.stringify(projects)}
+                - Facturas por Pagar: ${JSON.stringify(pendingInvoices)}
+                - Tickets Recientes: ${JSON.stringify(tickets)}
+                
+                PREGUNTA DEL CLIENTE: "${msg}"
+                
                 ${aiConfig.POST_PROMPT}
                 `;
                 aiMsg = await gemini.generateText(fullPrompt);
             }
 
             if (aiMsg) {
-                // Procesar tickets
+                // Procesar comandos de tickets detectados por la IA
                 if (aiMsg.includes('[CREATE_TICKET:')) {
                     const match = aiMsg.match(/\[CREATE_TICKET:\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\]/);
                     if (match) {
                         const [_, priority, subject, summary] = match;
-                        console.log(`🎫 Ticket: ${subject}`);
+                        console.log(`🎫 ACCIÓN: Creando Ticket "${subject}"...`);
                         await perfex.createTicket({
                             subject, message: summary, priority,
                             userid: customer.customerId, contactid: customer.contactId,
                             email: customer.email, name: customer.firstname + ' ' + customer.lastname
-                        }).catch(e => console.error("Error ticket:", e.message));
+                        }).catch(e => console.error("Error al crear ticket:", e.message));
                         aiMsg = aiMsg.replace(/\[CREATE_TICKET:.*?\]/g, '').trim();
                     }
                 }
                 await whatsapp.sendText(cleanFrom, aiMsg);
             } else {
-                await whatsapp.sendText(cleanFrom, `¡Hola ${customer.firstname}! Soy Laura. ¿En qué te ayudo?`);
+                await whatsapp.sendText(cleanFrom, `¡Hola ${customer.firstname}! Soy Laura de GM Group.`);
             }
+            
             await whatsapp.sendText(cleanFrom, rigidMsg);
 
         } else {
             console.log(`⚠️ NO ENCONTRADO: ${cleanFrom}`);
             let aiFallback = aiConfig.FALLBACK_PROMPT;
             if (gemini.isReady()) {
-                // Instrucción ultra-directa para evitar que alucine
-                aiFallback = await gemini.generateText(`Eres Laura de GM Group. No encuentras al cliente con el número ${cleanFrom}. Pídele amablemente su correo o NIT para buscarlo. RESPONDE DIRECTAMENTE AL CLIENTE, NO DIGAS "AQUÍ TIENES UN BORRADOR". Sé Laura, entusiasta y amable.`);
+                aiFallback = await gemini.generateText(`Eres Laura de GM Group. No encuentras al cliente con número ${cleanFrom}. Pídele amablemente su correo o NIT. Sé muy entusiasta y profesional. RESPONDE DIRECTAMENTE.`);
             }
             await whatsapp.sendText(cleanFrom, aiFallback || aiConfig.FALLBACK_PROMPT);
         }
@@ -111,10 +127,10 @@ app.post('/ai/plugin', async (req, res) => {
         return res.json({ status: "success", stop: true });
 
     } catch (error) {
-        console.error(`💥 Error:`, error.message);
+        console.error(`💥 Error Crítico:`, error.message);
         return res.json({ status: "error" });
     }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`\n🚀 LAURA (PRO 2.5) ONLINE EN PUERTO ${PORT}`));
+app.listen(PORT, () => console.log(`\n🚀 LAURA (AGENCIA V2.5) ONLINE EN PUERTO ${PORT}`));

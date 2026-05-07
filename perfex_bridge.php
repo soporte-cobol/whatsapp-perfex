@@ -1,6 +1,6 @@
 <?php
 /**
- * Bridge de Emergencia - Superando bloqueos de CodeIgniter
+ * Bridge de Emergencia - Optimizado para Agencia de Viajes GM Group
  */
 header('Content-Type: application/json; charset=utf-8');
 define('BASEPATH', 'index.php');
@@ -33,18 +33,13 @@ $response = [];
 switch ($action) {
     case 'get_customer_by_phone':
         $phone = preg_replace('/\D/', '', $_GET['phone'] ?? '');
-        $search10 = substr($phone, -10);
-        $search7 = substr($phone, -7);
-        
-        $sql = "SELECT c.userid as customerId, c.id as contactId, c.firstname, c.lastname, cl.company, c.email 
+        $last7 = substr($phone, -7);
+        // Búsqueda cruzada en contactos y clientes
+        $sql = "SELECT c.userid as customerId, c.id as contactId, c.firstname, c.lastname, cl.company, c.email, cl.vat 
                 FROM tblcontacts c 
-                LEFT JOIN tblclients cl ON c.userid = cl.userid 
-                WHERE c.phonenumber LIKE '%$phone%' 
-                   OR cl.phonenumber LIKE '%$phone%' 
-                   OR c.phonenumber LIKE '%$search10%' 
-                   OR c.phonenumber LIKE '%$search7%' 
+                INNER JOIN tblclients cl ON c.userid = cl.userid 
+                WHERE c.phonenumber LIKE '%$last7%' OR cl.phonenumber LIKE '%$last7%' 
                 ORDER BY c.is_primary DESC LIMIT 1";
-                
         $res = mysqli_query($conn, $sql);
         $result = mysqli_fetch_assoc($res);
         $response = $result ? array_merge($result, ['found' => true]) : ['found' => false];
@@ -52,10 +47,10 @@ switch ($action) {
 
     case 'get_customer_by_email':
         $email = mysqli_real_escape_string($conn, trim($_GET['email'] ?? ''));
-        $sql = "SELECT c.userid as customerId, c.id as contactId, c.firstname, c.lastname, cl.company, c.email 
+        $sql = "SELECT c.userid as customerId, c.id as contactId, c.firstname, c.lastname, cl.company, c.email, cl.vat 
                 FROM tblcontacts c 
-                LEFT JOIN tblclients cl ON c.userid = cl.userid 
-                WHERE c.email = '$email' OR c.email LIKE '%$email%' LIMIT 1";
+                INNER JOIN tblclients cl ON c.userid = cl.userid 
+                WHERE c.email = '$email' LIMIT 1";
         $res = mysqli_query($conn, $sql);
         $result = mysqli_fetch_assoc($res);
         $response = $result ? array_merge($result, ['found' => true]) : ['found' => false];
@@ -63,30 +58,38 @@ switch ($action) {
 
     case 'get_customer_by_vat':
         $vat = mysqli_real_escape_string($conn, trim($_GET['vat'] ?? ''));
-        $sql = "SELECT userid as customerId, company, vat FROM tblclients WHERE vat LIKE '%$vat%' LIMIT 1";
+        $sql = "SELECT cl.userid as customerId, c.id as contactId, c.firstname, c.lastname, cl.company, c.email, cl.vat 
+                FROM tblclients cl 
+                INNER JOIN tblcontacts c ON cl.userid = c.userid 
+                WHERE cl.vat = '$vat' OR cl.vat LIKE '%$vat%' 
+                ORDER BY c.is_primary DESC LIMIT 1";
         $res = mysqli_query($conn, $sql);
-        if ($client = mysqli_fetch_assoc($res)) {
-            $cid = $client['customerId'];
-            $res_c = mysqli_query($conn, "SELECT id as contactId, firstname, lastname, email FROM tblcontacts WHERE userid = $cid ORDER BY is_primary DESC LIMIT 1");
-            $contact = mysqli_fetch_assoc($res_c);
-            $response = array_merge($client, $contact ? $contact : [], ['found' => true]);
-        } else {
-            $response = ['found' => false];
-        }
+        $result = mysqli_fetch_assoc($res);
+        $response = $result ? array_merge($result, ['found' => true]) : ['found' => false];
         break;
 
     case 'get_invoices':
         $cid = intval($_GET['customer_id'] ?? 0);
-        $res = mysqli_query($conn, "SELECT id, number, total, status, hash FROM tblinvoices WHERE clientid = $cid ORDER BY id DESC LIMIT 5");
+        $sql = "SELECT id, number, total, status, hash, date FROM tblinvoices WHERE clientid = $cid ORDER BY date DESC LIMIT 5";
+        $res = mysqli_query($conn, $sql);
         while ($row = mysqli_fetch_assoc($res)) {
             $row['view_url'] = "https://portal.gmgroup.com.co/invoice/" . $row['id'] . "/" . $row['hash'];
             $response[] = $row;
         }
         break;
 
+    case 'get_projects':
+        $cid = intval($_GET['customer_id'] ?? 0);
+        // Lógica de Viajes: Los proyectos suelen ser los planes de viaje
+        $sql = "SELECT id, name as travel_plan, status, start_date, deadline FROM tblprojects WHERE clientid = $cid ORDER BY start_date DESC LIMIT 3";
+        $res = mysqli_query($conn, $sql);
+        while ($row = mysqli_fetch_assoc($res)) $response[] = $row;
+        break;
+
     case 'get_tickets':
         $email = mysqli_real_escape_string($conn, trim($_GET['email'] ?? ''));
-        $res = mysqli_query($conn, "SELECT ticketid, subject, status FROM tbltickets WHERE email = '$email' ORDER BY date DESC LIMIT 3");
+        $sql = "SELECT ticketid, subject, status, date FROM tbltickets WHERE email = '$email' ORDER BY date DESC LIMIT 3";
+        $res = mysqli_query($conn, $sql);
         while ($row = mysqli_fetch_assoc($res)) $response[] = $row;
         break;
 
