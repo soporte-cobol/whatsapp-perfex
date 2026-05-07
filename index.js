@@ -26,40 +26,45 @@ app.post('/ai/plugin', async (req, res) => {
         const cleanFrom = from.split('@')[0].replace(/\D/g, '');
         if (from.includes('@g.us')) return res.json({ status: "success", stop: true });
 
-        console.log(`\n💬 INPUT: "${msg}" de ${cleanFrom}`);
+        console.log(`\n-----------------------------------------`);
+        console.log(`📩 MENSAJE: "${msg}" | TEL: ${cleanFrom}`);
 
         let customer = { found: false };
 
-        // 1. INTENTOS DE IDENTIFICACIÓN
-        // Por NIT (si hay números de 8+ cifras)
-        const nitMatch = msg.match(/\d{8,}/);
-        if (nitMatch) {
-            console.log(`🔍 Buscando NIT: ${nitMatch[0]}`);
-            customer = await perfex.getCustomerByVat(nitMatch[0]).catch(() => ({ found: false }));
+        // 1. BUSCAR POR EMAIL SI EXISTE EN EL MENSAJE
+        const emailMatch = msg.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+        if (emailMatch) {
+            console.log(`🔍 Intentando por EMAIL: ${emailMatch[0]}`);
+            customer = await perfex.getCustomerByEmail(emailMatch[0]);
+            console.log(`📡 Respuesta Bridge (Email):`, JSON.stringify(customer));
         }
 
-        // Por Email
+        // 2. BUSCAR POR NIT SI EXISTE
         if (!customer.found) {
-            const emailMatch = msg.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-            if (emailMatch) {
-                console.log(`🔍 Buscando Email: ${emailMatch[0]}`);
-                customer = await perfex.getCustomerByEmail(emailMatch[0]).catch(() => ({ found: false }));
+            const nitMatch = msg.match(/\d{7,}/);
+            if (nitMatch) {
+                console.log(`🔍 Intentando por NIT: ${nitMatch[0]}`);
+                customer = await perfex.getCustomerByVat(nitMatch[0]);
+                console.log(`📡 Respuesta Bridge (NIT):`, JSON.stringify(customer));
             }
         }
 
-        // Por Teléfono (último recurso)
+        // 3. BUSCAR POR TELÉFONO (Último recurso)
         if (!customer.found) {
-            console.log(`🔍 Buscando Teléfono: ${cleanFrom}`);
-            customer = await perfex.getCustomerByPhone(cleanFrom).catch(() => ({ found: false }));
+            console.log(`🔍 Intentando por TELÉFONO: ${cleanFrom}`);
+            customer = await perfex.getCustomerByPhone(cleanFrom);
+            console.log(`📡 Respuesta Bridge (Tel):`, JSON.stringify(customer));
         }
 
         if (customer.found) {
-            console.log(`✅ IDENTIFICADO: ${customer.firstname}`);
+            console.log(`✅ IDENTIFICADO: ${customer.firstname} (${customer.company})`);
             
             const [invoices, projects] = await Promise.all([
                 perfex.getInvoices(customer.customerId).catch(() => []),
                 perfex.getProjects(customer.customerId).catch(() => [])
             ]);
+
+            console.log(`📊 Datos: ${invoices.length} facturas, ${projects.length} viajes.`);
 
             let rigidMsg = `*RESUMEN DE CUENTA GM GROUP* 🏛️\n`;
             if (invoices.length > 0) {
@@ -69,54 +74,27 @@ app.post('/ai/plugin', async (req, res) => {
                 rigidMsg += `\n✅ No tienes facturas pendientes.`;
             }
 
-            const fullPrompt = `
-            ${aiConfig.PRE_PROMPT}
-            REGLA CRÍTICA: Eres Laura. Responde DIRECTAMENTE al cliente. No digas "Aquí tienes un borrador". No uses "Asunto:". 
+            const aiMsg = await gemini.generateText(`${aiConfig.PRE_PROMPT}\n\nCLIENTE: ${customer.firstname}\nVIAJES: ${JSON.stringify(projects)}\n\nPREGUNTA: "${msg}"\n\n${aiConfig.POST_PROMPT}`);
             
-            CONTEXTO:
-            - Cliente: ${customer.firstname} (${customer.company})
-            - Viajes: ${JSON.stringify(projects)}
-            
-            MENSAJE DEL CLIENTE: "${msg}"
-            
-            ${aiConfig.POST_PROMPT}
-            `;
-            
-            const aiMsg = await gemini.generateText(fullPrompt);
             if (aiMsg) {
-                // Lógica de tickets
-                if (aiMsg.includes('[CREATE_TICKET:')) {
-                    const tMatch = aiMsg.match(/\[CREATE_TICKET:\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\]/);
-                    if (tMatch) {
-                        await perfex.createTicket({
-                            subject: tMatch[2], message: tMatch[3], priority: tMatch[1],
-                            userid: customer.customerId, contactid: customer.contactId,
-                            email: customer.email, name: customer.firstname
-                        });
-                    }
-                }
-                const finalAi = aiMsg.replace(/\[CREATE_TICKET:.*?\]/g, '').replace(/Asunto:.*?\n/gi, '').trim();
+                const finalAi = aiMsg.replace(/\[CREATE_TICKET:.*?\]/g, '').trim();
                 await whatsapp.sendText(cleanFrom, finalAi);
             }
             await whatsapp.sendText(cleanFrom, rigidMsg);
 
         } else {
-            console.log(`⚠️ NO ENCONTRADO: ${cleanFrom}`);
-            const fallbackPrompt = `Eres Laura de GM Group. NO ENCONTRAMOS al cliente con número ${cleanFrom}. 
-            Responde DIRECTAMENTE pidiendo amablemente su Correo o NIT. 
-            NO digas "Borrador", NO digas "Asunto". Solo responde como Laura.`;
-            
-            const aiFallback = await gemini.generateText(fallbackPrompt);
+            console.log(`⚠️ FALLÓ IDENTIFICACIÓN`);
+            const aiFallback = await gemini.generateText(`Eres Laura de GM Group. NO encontramos al cliente con número ${cleanFrom}. Pide el correo o NIT amablemente.`);
             await whatsapp.sendText(cleanFrom, aiFallback || aiConfig.FALLBACK_PROMPT);
         }
 
         return res.json({ status: "success" });
 
     } catch (error) {
-        console.error(`💥 ERROR:`, error.message);
+        console.error(`💥 ERROR CRÍTICO:`, error);
         return res.json({ status: "error" });
     }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 LAURA ONLINE | PUERTO ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LAURA (MODO RESCATE) ONLINE | PUERTO ${PORT}`));
