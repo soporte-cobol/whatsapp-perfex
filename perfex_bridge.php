@@ -18,7 +18,7 @@ if (!file_exists(__DIR__ . '/application/config/app-config.php')) {
 require_once(__DIR__ . '/application/config/app-config.php');
 
 // Seguridad: Token para que solo tu bot pueda consultar
-$secret_key = "PON_AQUI_EL_MISMO_TOKEN_QUE_EN_TU_DOT_ENV"; // <--- Cambia esto
+$secret_key = "3368a69129eec8b7ec432cb1d14da1af711ff1ad"; // <--- Sincronizado con WEBHOOK_API_KEY
 
 // Seguridad Extra: Es altamente recomendable validar el origen.
 // Si conoces la IP de tu servidor Node, descomenta las siguientes líneas:

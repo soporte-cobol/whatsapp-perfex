@@ -90,22 +90,26 @@ const authenticateWebhook = (req, res, next) => {
  * Lógica compartida del Dispatcher (Maneja Plugins y Webhooks)
  */
 async function handlePluginRequest(req, res) {
-    // 1. Intentamos detectar si es una LLAMADA DE FUNCIÓN (Plugin/Tool Call) primero
+    // 1. Detectar si es una LLAMADA DE FUNCIÓN (Plugin/Tool Call) primero
     let action = req.body.action || req.body.function || req.body.name || req.body.method || 
+                 (req.body.data && (req.body.data.action || req.body.data.function || req.body.data.name)) ||
                  (req.body.calls && req.body.calls[0]?.function?.name);
 
     let args = req.body.arguments || req.body.args || req.body.params || req.body.data ||
                (req.body.calls && req.body.calls[0]?.function?.arguments) || req.body;
 
-    // 2. Si NO hay una acción de plugin, verificamos si es una notificación de evento de WhatsApp
+    // 2. Si NO hay una acción detectable, verificamos si es una notificación de mensaje o heartbeat
     if (!action) {
-        if (req.body.message && req.body.from) {
-            logger.info(`💬 Evento de mensaje recibido de ${req.body.from}: ${req.body.message.substring(0, 20)}...`);
-            return res.status(200).json({ status: 'ok', type: 'event_received' });
+        const msg = req.body.message || (req.body.data && req.body.data.message);
+        const from = req.body.from || (req.body.data && (req.body.data.phone || req.body.data.wid));
+
+        if (msg && from) {
+            logger.info(`💬 Evento de mensaje recibido de ${from}: ${msg.substring(0, 20)}...`);
+            return res.status(204).send(); // 204 No Content: evita enviar JSON que confunda a Gemini
         }
         
-        logger.info('ℹ️ Petición sin acción detectable. Cuerpo completo para análisis:', { body: req.body });
-        return res.status(200).json({ status: 'ok', message: 'No action detected', request_received: true });
+        logger.info('ℹ️ Heartbeat o petición sin acción detectable');
+        return res.status(204).send();
     }
 
     // Log de ejecución de Plugin
