@@ -19,16 +19,18 @@ app.post('/ai/plugin', async (req, res) => {
         const from = String(data.phone || data.wid || "");
         const secret = req.body.secret || "";
 
+        // SEGURIDAD PRIMERO
         if (secret !== process.env.WEBHOOK_API_KEY) return res.json({ status: "error" });
         if (!msg) return res.json({ status: "success", stop: true });
 
-        // FILTRO ANTI-GRUPOS Y IDS LARGOS
-        if (from.length > 15 || from.includes('@g.us')) {
-            console.log(`⏭️ Ignorando mensaje de grupo o ID no telefónico: ${from}`);
+        const cleanFrom = from.split('@')[0].replace(/\D/g, '');
+        
+        // FILTRO ANTI-GRUPOS REAL (solo si es @g.us o no tiene números)
+        if (from.includes('@g.us') || !cleanFrom) {
+            console.log(`⏭️ Ignorando grupo/inválido: ${from}`);
             return res.json({ status: "success", stop: true });
         }
 
-        const cleanFrom = from.split('@')[0].replace(/\D/g, '');
         console.log(`\n💬 De: ${cleanFrom} | Msg: "${msg}"`);
 
         let customer = { found: false };
@@ -75,7 +77,7 @@ app.post('/ai/plugin', async (req, res) => {
                 CONOCIMIENTO DESTINOS:
                 ${aiConfig.KNOWLEDGE_BASE}
                 
-                DATOS CRM:
+                DATOS CLIENTE:
                 - Cliente: ${customer.firstname} ${customer.lastname}
                 - Facturas: ${JSON.stringify(pending)}
                 
@@ -92,7 +94,7 @@ app.post('/ai/plugin', async (req, res) => {
                     const match = aiMsg.match(/\[CREATE_TICKET:\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\]/);
                     if (match) {
                         const [_, priority, subject, summary] = match;
-                        console.log(`🎫 ACCIÓN: Generando Ticket "${subject}"...`);
+                        console.log(`🎫 ACCIÓN: Generando Ticket "${subject}" (Prioridad: ${priority})...`);
                         await perfex.createTicket({
                             subject,
                             message: summary,
@@ -108,7 +110,7 @@ app.post('/ai/plugin', async (req, res) => {
                 }
                 await whatsapp.sendText(cleanFrom, aiMsg);
             } else {
-                await whatsapp.sendText(cleanFrom, `¡Hola ${customer.firstname}! Soy Laura. ¿En qué puedo ayudarte hoy?`);
+                await whatsapp.sendText(cleanFrom, `¡Hola ${customer.firstname}! Soy Laura. ¿En qué puedo ayudarte?`);
             }
             
             await whatsapp.sendText(cleanFrom, rigidMsg);
