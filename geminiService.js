@@ -3,11 +3,11 @@ const axios = require('axios');
 class GeminiService {
     constructor(apiKey) {
         this.apiKey = String(apiKey || '').trim();
-        // Ponemos el 2.0-flash de primero y agregamos los nombres correctos
+        // Lista actualizada con los modelos disponibles para tu API Key
         this.models = [
-            'gemini-2.0-flash',
-            'gemini-1.5-flash',
-            'gemini-1.5-pro'
+            'gemini-3.1-flash-lite',
+            'gemini-2.5-flash',
+            'gemini-flash-latest'
         ];
         this.currentModelIndex = 0;
         this.baseUrl = 'https://generativelanguage.googleapis.com/v1beta';
