@@ -43,11 +43,13 @@ class GeminiService {
             }
             return null;
         } catch (error) {
-            console.warn(`⚠️ MODELO [${model}] FALLÓ. Probando siguiente...`);
+            console.warn(`⚠️ MODELO [${model}] FALLÓ. Error:`, error.response?.data || error.message);
             if (this.currentModelIndex < this.models.length - 1) {
                 this.currentModelIndex++;
                 return this.generateText(prompt);
             }
+            // Si fallan todos, resetea el índice para futuras llamadas
+            this.currentModelIndex = 0;
             return null;
         }
     }
