@@ -1,15 +1,103 @@
 /**
  * aiConfig.js - Blindaje de Personalidad Laura GM Group
+ * 
+ * DESTINOS: Agrega, edita o elimina entradas en el array DESTINATIONS.
+ * Cada destino tiene: nombre, alias (palabras clave), precios, duración, incluye y descripción.
  */
 
+const DESTINATIONS = [
+    {
+        nombre: "Las Aldeas",
+        alias: ["las aldeas", "aldeas"],
+        precio_adulto: 350000,
+        precio_nino: 180000,   // niños de 3 a 11 años
+        ninos_gratis_hasta: 2, // edad hasta la que es gratis (0-2 años gratis)
+        duracion_dias: 3,
+        duracion_noches: 2,
+        incluye: "transporte, alojamiento, desayunos y actividades guiadas",
+        descripcion: "Un refugio de naturaleza y tranquilidad a solo horas de Bogotá, perfecto para desconectarse."
+    },
+    {
+        nombre: "San Gil",
+        alias: ["san gil", "sangil"],
+        precio_adulto: 420000,
+        precio_nino: 210000,
+        ninos_gratis_hasta: 2,
+        duracion_dias: 4,
+        duracion_noches: 3,
+        incluye: "transporte, alojamiento, desayunos y 1 actividad de aventura incluida",
+        descripcion: "La capital de aventura de Colombia: rafting, parapente, espeleología y más."
+    },
+    {
+        nombre: "Amanecer de los Venados",
+        alias: ["amanecer de los venados", "venados", "amanecer venados"],
+        precio_adulto: 380000,
+        precio_nino: 190000,
+        ninos_gratis_hasta: 2,
+        duracion_dias: 3,
+        duracion_noches: 2,
+        incluye: "transporte, alojamiento ecológico, todas las comidas y avistamiento de fauna",
+        descripcion: "Una experiencia ecoturística única en contacto directo con la naturaleza y los venados."
+    },
+    {
+        nombre: "Bosque de la Villa",
+        alias: ["bosque de la villa", "bosque villa", "la villa"],
+        precio_adulto: 310000,
+        precio_nino: 155000,
+        ninos_gratis_hasta: 2,
+        duracion_dias: 2,
+        duracion_noches: 1,
+        incluye: "transporte, alojamiento, desayuno y recorrido guiado por el bosque",
+        descripcion: "El escape perfecto para un fin de semana: naturaleza, aire puro y descanso total."
+    }
+];
+
+// Genera el bloque de texto del catálogo para inyectar al prompt de Gemini
+function buildDestinationsCatalog() {
+    return DESTINATIONS.map(d => {
+        const formatCOP = (n) => `$${n.toLocaleString('es-CO')} COP`;
+        return `- *${d.nombre}* (${d.duracion_dias} días / ${d.duracion_noches} noches): Adulto ${formatCOP(d.precio_adulto)} | Niño (3-11 años) ${formatCOP(d.precio_nino)} | Menores de ${d.ninos_gratis_hasta + 1} años GRATIS. Incluye: ${d.incluye}. ${d.descripcion}`;
+    }).join('\n');
+}
+
+// Busca un destino por nombre o alias en el mensaje del usuario
+function findDestination(text) {
+    const lower = text.toLowerCase();
+    return DESTINATIONS.find(d => d.alias.some(a => lower.includes(a)));
+}
+
+// Calcula el precio total estimado dado un destino y número de personas
+function calcularPrecio(destino, adultos = 1, ninos = 0, bebes = 0) {
+    const totalAdultos = adultos * destino.precio_adulto;
+    const totalNinos = ninos * destino.precio_nino;
+    // bebés (hasta ninos_gratis_hasta años) son gratis
+    const total = totalAdultos + totalNinos;
+    return {
+        adultos,
+        ninos,
+        bebes,
+        totalAdultos,
+        totalNinos,
+        total,
+        porPersona: Math.round(total / (adultos + ninos || 1))
+    };
+}
+
 module.exports = {
+    DESTINATIONS,
+    findDestination,
+    calcularPrecio,
+    buildDestinationsCatalog,
+
     BOT_NAME: "Laura",
 
     KNOWLEDGE_BASE: `
-    DESTINOS: Las Aldeas, San Gil, Amanecer de los Venados, Bosque de la Villa.
-    PET FRIENDLY: ¡Absolutamente! Amamos a las mascotas.
-    CAPACIDAD: Global (100 ciudades, 300k hoteles).
-    CANAL HUMANO: WhatsApp +57 300 350 5396.
+DESTINOS NACIONALES DISPONIBLES (con precios por persona):
+${buildDestinationsCatalog()}
+
+DESTINOS INTERNACIONALES: Más de 100 ciudades y 300,000 hoteles en todo el mundo (cotización personalizada).
+PET FRIENDLY: ¡Absolutamente! Amamos a las mascotas.
+CANAL HUMANO: WhatsApp +57 300 350 5396.
     `,
 
     PRE_PROMPT: `ERES LAURA, ASESORA SENIOR DE GM GROUP.

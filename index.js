@@ -136,9 +136,45 @@ app.post('/ai/plugin', async (req, res) => {
             await whatsapp.sendText(cleanFrom, aiFallback || aiConfig.FALLBACK_PROMPT);
         } else {
             console.log(`🤖 RESPUESTA GENERATIVA (Sin forzar identificación)`);
-            // TEXTO GENERATIVO PURO
-            const aiMsg = await gemini.generateText(`${aiConfig.PRE_PROMPT}\n\n${aiConfig.KNOWLEDGE_BASE || ''}\n\nPREGUNTA DEL CLIENTE: "${msg}"\n\nINSTRUCCIÓN: Eres asesora de viajes. Responde amablemente a la pregunta del cliente. NO le pidas su correo electrónico ni su NIT a menos que te esté pidiendo reservar algo o consultar sus facturas.\n\n${aiConfig.POST_PROMPT}`);
-            
+
+            // Detectar destino específico del catálogo en el mensaje
+            const destinoDetectado = aiConfig.findDestination(msg);
+
+            // Extraer número de personas del mensaje
+            let adultos = 1, ninos = 0, bebes = 0;
+            const somosMatch   = msg.match(/somos\s+(\d+)/i);
+            const adultosMatch = msg.match(/(\d+)\s*adultos?/i);
+            const ninosMatch   = msg.match(/(\d+)\s*ni[ñn]os?/i);
+            const bebesMatch   = msg.match(/(\d+)\s*beb[eé]s?/i);
+            if (adultosMatch) adultos = parseInt(adultosMatch[1]);
+            else if (somosMatch) adultos = parseInt(somosMatch[1]);
+            if (ninosMatch) ninos = parseInt(ninosMatch[1]);
+            if (bebesMatch) bebes = parseInt(bebesMatch[1]);
+
+            let destinoContext = '';
+            if (destinoDetectado) {
+                const precio = aiConfig.calcularPrecio(destinoDetectado, adultos, ninos, bebes);
+                const fmt = (n) => `$${n.toLocaleString('es-CO')} COP`;
+                console.log(`💰 Destino: ${destinoDetectado.nombre} | Adultos: ${adultos} | Niños: ${ninos} | Bebés: ${bebes}`);
+                destinoContext = `\nDESTINO SOLICITADO: ${destinoDetectado.nombre}
+DURACION: ${destinoDetectado.duracion_dias} dias / ${destinoDetectado.duracion_noches} noches
+INCLUYE: ${destinoDetectado.incluye}
+DESCRIPCION: ${destinoDetectado.descripcion}
+CALCULO DE PRECIOS:
+  - Adultos: ${adultos} x ${fmt(destinoDetectado.precio_adulto)} = ${fmt(precio.totalAdultos)}
+  - Ninos (3-11 anos): ${ninos} x ${fmt(destinoDetectado.precio_nino)} = ${fmt(precio.totalNinos)}
+  - Bebes (0-2 anos): ${bebes} GRATIS
+  - TOTAL ESTIMADO: ${fmt(precio.total)}
+INSTRUCCION ESPECIAL: Presenta este calculo de forma calida. Menciona que incluye y anima a reservar. NO inventes precios.`;
+            }
+
+            const instruccion = destinoDetectado
+                ? 'Presenta el calculo de precios de forma natural y entusiasta.'
+                : 'NO le pidas correo ni NIT a menos que quiera reservar o consultar facturas.';
+
+            const prompt = `${aiConfig.PRE_PROMPT}\n\n${aiConfig.KNOWLEDGE_BASE || ''}${destinoContext}\n\nPREGUNTA DEL CLIENTE: "${msg}"\n\nINSTRUCCION: ${instruccion}\n\n${aiConfig.POST_PROMPT}`;
+            const aiMsg = await gemini.generateText(prompt);
+
             if (aiMsg) {
                 const finalAi = aiMsg.replace(/\[CREATE_TICKET:.*?\]/g, '').trim();
                 await whatsapp.sendText(cleanFrom, finalAi);
