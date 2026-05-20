@@ -85,72 +85,50 @@ class WhatsAppService {
      */
     _splitMessage(text, maxBytes) {
         const chunks = [];
-
-        // Nivel 1: Dividir por párrafos dobles (\n\n)
-        const paragraphs = text.split(/\n\n+/);
-
-        let buffer = '';
+        // Nivel 1: Dividir por párrafos dobles (\n\n) 
+        // Cada párrafo será intentado como una burbuja única para evitar saturar la API externa
+        const paragraphs = text.split(/\n\n+/).map(p => p.trim()).filter(p => p.length > 0);
 
         for (const para of paragraphs) {
-            const trimmed = para.trim();
-            if (!trimmed) continue;
-
-            const candidate = buffer ? buffer + '\n\n' + trimmed : trimmed;
-
-            if (this._byteLength(candidate) <= maxBytes) {
-                // El párrafo cabe junto con el buffer actual
-                buffer = candidate;
+            if (this._byteLength(para) <= maxBytes) {
+                // El párrafo cabe completo en una burbuja
+                chunks.push(para);
             } else {
-                // Volcar el buffer actual como chunk
-                if (buffer) {
-                    chunks.push(buffer);
-                    buffer = '';
-                }
+                // Nivel 2: El párrafo es demasiado largo, dividimos en oraciones
+                const sentences = para.split(/(?<=[.!?])\s+/);
+                let buffer = '';
+                for (const sentence of sentences) {
+                    const s = sentence.trim();
+                    if (!s) continue;
 
-                // ¿El párrafo solo cabe en un chunk?
-                if (this._byteLength(trimmed) <= maxBytes) {
-                    buffer = trimmed;
-                } else {
-                    // Nivel 2: Dividir el párrafo en oraciones
-                    const sentences = trimmed.split(/(?<=[.!?])\s+/);
-                    for (const sentence of sentences) {
-                        const s = sentence.trim();
-                        if (!s) continue;
-
-                        const sentCandidate = buffer ? buffer + ' ' + s : s;
-
-                        if (this._byteLength(sentCandidate) <= maxBytes) {
-                            buffer = sentCandidate;
-                        } else {
-                            if (buffer) {
-                                chunks.push(buffer);
-                                buffer = '';
-                            }
-
-                            if (this._byteLength(s) <= maxBytes) {
-                                buffer = s;
+                    if (this._byteLength(s) > maxBytes) {
+                        // Nivel 3: La oración sola es demasiado larga, dividimos por palabras
+                        if (buffer) { chunks.push(buffer); buffer = ''; }
+                        const words = s.split(' ');
+                        for (const word of words) {
+                            const w = word.trim();
+                            if (!w) continue;
+                            const candidate = buffer ? buffer + ' ' + w : w;
+                            if (this._byteLength(candidate) <= maxBytes) {
+                                buffer = candidate;
                             } else {
-                                // Nivel 3: Corte por bytes contando palabra a palabra
-                                const words = s.split(' ');
-                                for (const word of words) {
-                                    const w = word.trim();
-                                    if (!w) continue;
-                                    const wCandidate = buffer ? buffer + ' ' + w : w;
-                                    if (this._byteLength(wCandidate) <= maxBytes) {
-                                        buffer = wCandidate;
-                                    } else {
-                                        if (buffer) chunks.push(buffer);
-                                        buffer = w;
-                                    }
-                                }
+                                if (buffer) chunks.push(buffer);
+                                buffer = w;
                             }
+                        }
+                    } else {
+                        const candidate = buffer ? buffer + ' ' + s : s;
+                        if (this._byteLength(candidate) <= maxBytes) {
+                            buffer = candidate;
+                        } else {
+                            chunks.push(buffer);
+                            buffer = s;
                         }
                     }
                 }
+                if (buffer) chunks.push(buffer);
             }
         }
-
-        if (buffer) chunks.push(buffer);
         return chunks;
     }
 }
