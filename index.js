@@ -38,7 +38,9 @@ app.get('/ai/debug', (req, res) => {
 app.post('/ai/plugin', async (req, res) => {
     try {
         const data = req.body?.data || req.body || {};
-        const msg = (data.message || "").trim();
+        const rawMsg = (data.message || "").trim();
+        // Eliminar la firma del plan gratuito de la API para que no ensucie el procesamiento
+        const msg = rawMsg.replace(/Envía:\s*uno\.cobol\.com\.co/gi, "").trim();
         const from = String(data.phone || data.wid || "");
         const secret = cleanString(req.body?.secret || req.body?.token);
 
@@ -174,6 +176,8 @@ INSTRUCCION ESPECIAL: Presenta este calculo de forma calida. Menciona que incluy
 
             const prompt = `${aiConfig.PRE_PROMPT}\n\n${aiConfig.KNOWLEDGE_BASE || ''}${destinoContext}\n\nPREGUNTA DEL CLIENTE: "${msg}"\n\nINSTRUCCION: ${instruccion}\n\n${aiConfig.POST_PROMPT}`;
             const aiMsg = await gemini.generateText(prompt);
+
+            console.log(`🤖 [IA FULL RESPONSE]:\n${aiMsg}\n-------------------------`);
 
             if (aiMsg) {
                 const finalAi = aiMsg.replace(/\[CREATE_TICKET:.*?\]/g, '').trim();

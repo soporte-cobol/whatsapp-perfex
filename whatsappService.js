@@ -22,24 +22,18 @@ class WhatsAppService {
         // Límite conservador: 300 bytes (~150 chars en español)
         const MAX_BYTES = 1000; // Aumentado para permitir mensajes más completos por burbuja
 
-        // Nivel 1: dividir siempre por párrafos (\n\n) — cada párrafo = 1 burbuja de WhatsApp
-        const paragraphs = clean.split(/\n\n+/).map(p => p.trim()).filter(p => p.length > 0);
+        // Usamos _splitMessage directamente sobre el texto completo. 
+        // Esto agrupará párrafos hasta llegar al límite de MAX_BYTES,
+        // reduciendo drásticamente la cantidad de firmas "Envía: uno.cobol.com.co".
+        const chunks = this._splitMessage(clean, MAX_BYTES);
 
-        const chunks = [];
-        for (const para of paragraphs) {
-            if (this._byteLength(para) <= MAX_BYTES) {
-                chunks.push(para);
-            } else {
-                // Nivel 2/3: subdividir párrafo largo en oraciones/palabras
-                chunks.push(...this._splitMessage(para, MAX_BYTES));
-            }
-        }
+        console.log(`📝 Procesando mensaje de ${this._byteLength(clean)} bytes.`);
 
         if (chunks.length === 1) {
             return await this._executeSend(recipient, chunks[0]);
         }
 
-        console.log(`📦 Enviando mensaje en ${chunks.length} partes...`);
+        console.log(`📦 El mensaje total se enviará en ${chunks.length} burbujas separadas.`);
         for (const chunk of chunks) {
             await this._executeSend(recipient, chunk);
             await new Promise(r => setTimeout(r, 1500));
