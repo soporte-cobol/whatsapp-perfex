@@ -20,7 +20,7 @@ class WhatsAppService {
         const clean = String(message || '').replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '').trim();
 
         // Límite conservador: 300 bytes (~150 chars en español)
-        const MAX_BYTES = 300;
+        const MAX_BYTES = 1000; // Aumentado para permitir mensajes más completos por burbuja
 
         // Nivel 1: dividir siempre por párrafos (\n\n) — cada párrafo = 1 burbuja de WhatsApp
         const paragraphs = clean.split(/\n\n+/).map(p => p.trim()).filter(p => p.length > 0);

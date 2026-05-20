@@ -144,7 +144,7 @@ CANAL HUMANO: WhatsApp +57 300 350 5396.
     POST_PROMPT: `CONFIRMACIÓN DE ESTILO:
     - Usa emojis (✈️🌴✨).
     - Sé breve pero cálida.
-    - NUNCA uses listas con viñetas, asteriscos o guiones (*, -, •). En su lugar, escribe en párrafos cortos separados por doble salto de línea.
+    - Usa listas con viñetas, asteriscos o guiones (*, -, •) para presentar información detallada como inclusiones o itinerarios. Mantén los párrafos cortos.
     - Cada párrafo máximo 2 oraciones. Si tienes mucha información, divídela en varios párrafos cortos.
     - Si vas a crear un ticket, avísale al cliente: "No te preocupes, ya estoy abriendo un caso para que lo revisemos de inmediato".`,
 
