@@ -15,15 +15,19 @@ const gemini = new GeminiService(process.env.GEMINI_API_KEY, "gemini-2.5-flash")
 
 app.post('/ai/plugin', async (req, res) => {
     try {
-        const data = req.body.data || req.body;
+        const data = req.body?.data || req.body || {};
         const msg = (data.message || "").trim();
         const from = String(data.phone || data.wid || "");
-        const secret = req.body.secret || req.body.token || "";
+        const secret = req.body?.secret || req.body?.token || "";
 
         if (secret !== process.env.WEBHOOK_API_KEY) return res.json({ status: "error" });
         if (!msg) return res.json({ status: "success", stop: true });
 
         const cleanFrom = from.split('@')[0].replace(/\D/g, '');
+        if (!cleanFrom) {
+            console.warn("⚠️ Petición recibida sin número de teléfono de destino válido.");
+            return res.json({ status: "success", stop: true });
+        }
         if (from.includes('@g.us')) return res.json({ status: "success", stop: true });
 
         console.log(`\n-----------------------------------------`);
@@ -104,6 +108,9 @@ app.post('/ai/plugin', async (req, res) => {
             if (aiMsg) {
                 const finalAi = aiMsg.replace(/\[CREATE_TICKET:.*?\]/g, '').trim();
                 await whatsapp.sendText(cleanFrom, finalAi);
+            } else {
+                console.warn(`⚠️ Gemini no generó respuesta. Enviando Fallback.`);
+                await whatsapp.sendText(cleanFrom, aiConfig.FALLBACK_PROMPT);
             }
         }
 
