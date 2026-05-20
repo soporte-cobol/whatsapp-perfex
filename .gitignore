@@ -1,10 +1,10 @@
 # Dependencias
 node_modules/
 
-# Configuración sensible
+# Variables de entorno (Contienen llaves de API)
 .env
 
 # Logs y temporales
-*.log
 npm-debug.log*
 .DS_Store
+dist/
