@@ -15,6 +15,26 @@ const perfex = new PerfexService(cleanString(process.env.PERFEX_BASE_URL), clean
 const whatsapp = new WhatsAppService(cleanString(process.env.WHATSAPP_API_SECRET), cleanString(process.env.WHATSAPP_ACCOUNT_ID));
 const gemini = new GeminiService(cleanString(process.env.GEMINI_API_KEY), "gemini-2.5-flash");
 
+app.get('/ai/debug', (req, res) => {
+    const mask = (val) => {
+        if (!val) return '❌ VACÍO';
+        const raw = String(val);
+        const str = cleanString(raw);
+        return `${str.substring(0, 4)}...${str.substring(Math.max(0, str.length - 4))} (Longitud original: ${raw.length}, Sanitizado: ${str.length})`;
+    };
+    return res.json({
+        env_loaded: Boolean(process.env.WEBHOOK_API_KEY),
+        WEBHOOK_API_KEY: mask(process.env.WEBHOOK_API_KEY),
+        WHATSAPP_API_SECRET: mask(process.env.WHATSAPP_API_SECRET),
+        WHATSAPP_ACCOUNT_ID: mask(process.env.WHATSAPP_ACCOUNT_ID),
+        GEMINI_API_KEY: mask(process.env.GEMINI_API_KEY),
+        GEMINI_MODEL: process.env.GEMINI_MODEL || '❌ NO DEFINIDO',
+        node_version: process.version,
+        cwd: process.cwd(),
+        dirname: __dirname
+    });
+});
+
 app.post('/ai/plugin', async (req, res) => {
     try {
         const data = req.body?.data || req.body || {};
