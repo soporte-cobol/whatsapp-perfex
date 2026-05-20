@@ -11,8 +11,8 @@ class WhatsAppService {
     async sendText(recipient, message) {
         if (!message) return;
 
-        // Subimos a 400 para un mejor balance entre seguridad y fluidez
-        const MAX_LENGTH = 400; 
+        // Ajustamos a 200 para garantizar compatibilidad total con límites del gateway
+        const MAX_LENGTH = 200; 
         
         if (message.length > MAX_LENGTH) {
             const chunks = this._splitMessage(message, MAX_LENGTH);

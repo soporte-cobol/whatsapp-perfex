@@ -51,7 +51,18 @@ app.post('/ai/plugin', async (req, res) => {
             console.warn("⚠️ Petición recibida sin número de teléfono de destino válido.");
             return res.json({ status: "success", stop: true });
         }
-        if (from.includes('@g.us')) return res.json({ status: "success", stop: true });
+
+        // Ignorar grupos (@g.us), canales (@newsletter), listas de difusión (broadcast) e IDs numéricos que excedan los 15 dígitos standard de teléfonos
+        const isGroupOrChannel = 
+            from.includes('@g.us') || 
+            from.includes('@newsletter') || 
+            from.toLowerCase().includes('broadcast') || 
+            cleanFrom.length > 15;
+
+        if (isGroupOrChannel) {
+            console.log(`🚫 Mensaje ignorado (Grupo/Canal/Difusión detectado: ${from})`);
+            return res.json({ status: "success", stop: true });
+        }
 
         console.log(`\n-----------------------------------------`);
         console.log(`📩 MENSAJE: "${msg}" | TEL: ${cleanFrom}`);
