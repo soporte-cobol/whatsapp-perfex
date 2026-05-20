@@ -49,6 +49,39 @@ const DESTINATIONS = [
         duracion_noches: 1,
         incluye: "transporte, alojamiento, desayuno y recorrido guiado por el bosque",
         descripcion: "El escape perfecto para un fin de semana: naturaleza, aire puro y descanso total."
+    },
+    {
+        nombre: "Cartagena",
+        alias: ["cartagena", "la heroica", "cartagena de indias"],
+        precio_adulto: 980000,
+        precio_nino: 490000,
+        ninos_gratis_hasta: 2,
+        duracion_dias: 5,
+        duracion_noches: 4,
+        incluye: "tiquetes aéreos, hotel frente al mar, desayunos, city tour amurallado y visita a las islas",
+        descripcion: "La joya del Caribe colombiano: playas cristalinas, ciudad amurallada declarada Patrimonio de la Humanidad y gastronomía de talla mundial."
+    },
+    {
+        nombre: "Santa Marta",
+        alias: ["santa marta", "santamarta", "la perla de america", "ciudad bonita"],
+        precio_adulto: 890000,
+        precio_nino: 445000,
+        ninos_gratis_hasta: 2,
+        duracion_dias: 5,
+        duracion_noches: 4,
+        incluye: "tiquetes aéreos, hotel con vista al mar, desayunos, visita al Parque Tayrona y tour a la Sierra Nevada",
+        descripcion: "La ciudad más antigua de Colombia: Parque Tayrona, playas de arena blanca, la Sierra Nevada y el Rodadero, todo en un solo destino."
+    },
+    {
+        nombre: "Barranquilla",
+        alias: ["barranquilla", "barranquila", "la arenosa", "curramba"],
+        precio_adulto: 750000,
+        precio_nino: 375000,
+        ninos_gratis_hasta: 2,
+        duracion_dias: 4,
+        duracion_noches: 3,
+        incluye: "tiquetes aéreos, hotel en zona rosa, desayunos, tour cultural y visita al Carnaval (en temporada)",
+        descripcion: "La capital de la alegría colombiana: cuna del Carnaval declarado Patrimonio Inmaterial de la Humanidad, gastronomía caribeña y vida nocturna vibrante."
     }
 ];
 
