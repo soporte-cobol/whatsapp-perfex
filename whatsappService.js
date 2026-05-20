@@ -43,7 +43,9 @@ class WhatsAppService {
             form.append('account', this.accountId);
             form.append('recipient', recipient);
             form.append('type', 'text');
-            form.append('message', message);
+            // Sanitizar mensaje removiendo emojis de 4 bytes (pares subrogados) para evitar truncamiento en la base de datos UTF-8 de Zender
+            const sanitizedMessage = String(message || '').replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '');
+            form.append('message', sanitizedMessage);
 
             const response = await axios.post(url, form, {
                 headers: form.getHeaders(),
