@@ -20,9 +20,9 @@ class WhatsAppService {
         //    Eliminar emojis de 4 bytes (pares subrogados) que truncan bases de datos MySQL utf8 (3-byte)
         const clean = String(message || '').replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '').trim();
 
-        // 2. Límite en BYTES (no en chars) para respetar el límite del gateway de Zender.
-        //    160 bytes es el estándar seguro: cubre ~80 chars españoles acentuados o ~160 chars ASCII.
-        const MAX_BYTES = 160;
+        // 2. Límite generoso en BYTES: 350 bytes (~175 chars españoles).
+        //    Los emojis de 4 bytes ya fueron eliminados arriba, así que no hay riesgo de truncamiento en DB.
+        const MAX_BYTES = 350;
 
         if (this._byteLength(clean) > MAX_BYTES) {
             const chunks = this._splitMessage(clean, MAX_BYTES);
@@ -73,42 +73,80 @@ class WhatsAppService {
         }
     }
 
-    // Divide el texto en chunks respetando límite en BYTES (no en chars JS)
-    // Corta siempre en oraciones completas o palabras, nunca a mitad de palabra
+    /**
+     * División inteligente de 3 niveles respetando la estructura natural del texto de la IA:
+     *   Nivel 1: Respeta párrafos separados por \n\n (como los genera Gemini)
+     *   Nivel 2: Si un párrafo es muy largo, lo divide en oraciones (. ! ?)
+     *   Nivel 3: Si una oración es muy larga, corta en la última palabra completa (byte-aware)
+     */
     _splitMessage(text, maxBytes) {
         const chunks = [];
-        let current = text.trim();
 
-        while (this._byteLength(current) > maxBytes) {
-            // Intentar cortar en el último punto seguido de espacio dentro del límite de bytes
-            let splitAt = -1;
-            let probe = 0;
-            let lastPeriod = -1;
-            let lastSpace = -1;
+        // Nivel 1: Dividir por párrafos dobles (\n\n)
+        const paragraphs = text.split(/\n\n+/);
 
-            // Recorrer caracter por caracter contando bytes reales
-            for (let i = 0; i < current.length; i++) {
-                const charBytes = Buffer.byteLength(current[i], 'utf8');
-                if (probe + charBytes > maxBytes) break;
-                probe += charBytes;
-                if (current[i] === '.' && i + 1 < current.length && current[i + 1] === ' ') lastPeriod = i;
-                if (current[i] === ' ') lastSpace = i;
-            }
+        let buffer = '';
 
-            if (lastPeriod !== -1) {
-                splitAt = lastPeriod + 1; // incluir el punto
-            } else if (lastSpace !== -1) {
-                splitAt = lastSpace;
+        for (const para of paragraphs) {
+            const trimmed = para.trim();
+            if (!trimmed) continue;
+
+            const candidate = buffer ? buffer + '\n\n' + trimmed : trimmed;
+
+            if (this._byteLength(candidate) <= maxBytes) {
+                // El párrafo cabe junto con el buffer actual
+                buffer = candidate;
             } else {
-                // Sin espacio ni punto, cortar en el último byte seguro
-                splitAt = probe;
-            }
+                // Volcar el buffer actual como chunk
+                if (buffer) {
+                    chunks.push(buffer);
+                    buffer = '';
+                }
 
-            chunks.push(current.substring(0, splitAt).trim());
-            current = current.substring(splitAt).trim();
+                // ¿El párrafo solo cabe en un chunk?
+                if (this._byteLength(trimmed) <= maxBytes) {
+                    buffer = trimmed;
+                } else {
+                    // Nivel 2: Dividir el párrafo en oraciones
+                    const sentences = trimmed.split(/(?<=[.!?])\s+/);
+                    for (const sentence of sentences) {
+                        const s = sentence.trim();
+                        if (!s) continue;
+
+                        const sentCandidate = buffer ? buffer + ' ' + s : s;
+
+                        if (this._byteLength(sentCandidate) <= maxBytes) {
+                            buffer = sentCandidate;
+                        } else {
+                            if (buffer) {
+                                chunks.push(buffer);
+                                buffer = '';
+                            }
+
+                            if (this._byteLength(s) <= maxBytes) {
+                                buffer = s;
+                            } else {
+                                // Nivel 3: Corte por bytes contando palabra a palabra
+                                const words = s.split(' ');
+                                for (const word of words) {
+                                    const w = word.trim();
+                                    if (!w) continue;
+                                    const wCandidate = buffer ? buffer + ' ' + w : w;
+                                    if (this._byteLength(wCandidate) <= maxBytes) {
+                                        buffer = wCandidate;
+                                    } else {
+                                        if (buffer) chunks.push(buffer);
+                                        buffer = w;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
-        if (current) chunks.push(current);
+        if (buffer) chunks.push(buffer);
         return chunks;
     }
 }
