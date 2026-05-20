@@ -1,14 +1,20 @@
 const axios = require('axios');
 
 class GeminiService {
-    constructor(apiKey) {
+    constructor(apiKey, defaultModel) {
         this.apiKey = String(apiKey || '').trim();
-        // Lista actualizada con los modelos disponibles para tu API Key
+        const preferredModel = process.env.GEMINI_MODEL || defaultModel;
+        // Lista de modelos disponibles y sus fallbacks
         this.models = [
-            'gemini-3.1-flash-lite',
             'gemini-2.5-flash',
+            'gemini-2.0-flash',
+            'gemini-1.5-flash',
+            'gemini-3.1-flash-lite',
             'gemini-flash-latest'
         ];
+        if (preferredModel && !this.models.includes(preferredModel)) {
+            this.models.unshift(preferredModel);
+        }
         this.currentModelIndex = 0;
         this.baseUrl = 'https://generativelanguage.googleapis.com/v1beta';
     }
