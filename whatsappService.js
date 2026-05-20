@@ -61,11 +61,17 @@ class WhatsAppService {
         while (current.length > limit) {
             // Buscamos un punto o un espacio para no cortar palabras
             let splitAt = current.lastIndexOf('. ', limit);
-            if (splitAt === -1) splitAt = current.lastIndexOf(' ', limit);
-            if (splitAt === -1) splitAt = limit;
             
-            chunks.push(current.substring(0, splitAt).trim());
-            current = current.substring(splitAt).trim();
+            if (splitAt !== -1) {
+                // Si encontramos un punto seguido de espacio, cortamos incluyendo el punto (splitAt + 1)
+                chunks.push(current.substring(0, splitAt + 1).trim());
+                current = current.substring(splitAt + 1).trim();
+            } else {
+                splitAt = current.lastIndexOf(' ', limit);
+                if (splitAt === -1) splitAt = limit;
+                chunks.push(current.substring(0, splitAt).trim());
+                current = current.substring(splitAt).trim();
+            }
         }
         if (current) chunks.push(current);
         return chunks;
