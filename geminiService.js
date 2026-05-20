@@ -34,7 +34,7 @@ class GeminiService {
                 contents: [{ parts: [{ text: prompt }] }],
                 generationConfig: {
                     temperature: 0.7,
-                    maxOutputTokens: 1000,
+                    maxOutputTokens: 2048, // Aumentado para permitir respuestas más largas y completas
                 }
             };
 

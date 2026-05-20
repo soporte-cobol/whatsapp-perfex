@@ -20,23 +20,49 @@ class WhatsAppService {
         const clean = String(message || '').replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '').trim();
 
         // Límite conservador: 300 bytes (~150 chars en español)
-        const MAX_BYTES = 1000; // Aumentado para permitir mensajes más completos por burbuja
+        const MAX_BYTES = 1000; 
+        const MIN_CHUNK_BYTES = 10; // Mínimo de bytes para un fragmento de mensaje válido (evita "too short" errors)
 
-        // Usamos _splitMessage directamente sobre el texto completo. 
-        // Esto agrupará párrafos hasta llegar al límite de MAX_BYTES,
-        // reduciendo drásticamente la cantidad de firmas "Envía: uno.cobol.com.co".
-        const chunks = this._splitMessage(clean, MAX_BYTES);
+        let rawChunks = this._splitMessage(clean, MAX_BYTES);
+        let finalChunks = [];
+
+        for (let i = 0; i < rawChunks.length; i++) {
+            let currentChunk = rawChunks[i];
+            // Si el chunk actual es muy corto y no es el primero, intenta fusionarlo con el anterior
+            if (this._byteLength(currentChunk) < MIN_CHUNK_BYTES && finalChunks.length > 0) {
+                let lastFinalChunk = finalChunks[finalChunks.length - 1];
+                // Intentar combinar con un doble salto de línea para mantener la separación lógica
+                let combinedChunk = lastFinalChunk + '\n\n' + currentChunk; 
+
+                if (this._byteLength(combinedChunk) <= MAX_BYTES) {
+                    finalChunks[finalChunks.length - 1] = combinedChunk;
+                } else {
+                    // Si no se puede fusionar sin exceder el límite, lo añadimos tal cual (podría fallar la API)
+                    finalChunks.push(currentChunk);
+                }
+            } else if (this._byteLength(currentChunk) < MIN_CHUNK_BYTES && finalChunks.length === 0) {
+                // Si es el primer chunk y es muy corto, lo añadimos tal cual (podría fallar la API)
+                finalChunks.push(currentChunk);
+            } else {
+                // Chunk válido o no se necesita fusionar
+                finalChunks.push(currentChunk);
+            }
+        }
+
+        // Filtrar cualquier chunk que, después de los intentos de fusión, siga siendo demasiado corto
+        finalChunks = finalChunks.chunks.filter(chunk => this._byteLength(chunk) >= MIN_CHUNK_BYTES);
 
         console.log(`📝 Procesando mensaje de ${this._byteLength(clean)} bytes.`);
 
-        if (chunks.length === 1) {
-            return await this._executeSend(recipient, chunks[0]);
+        if (finalChunks.length === 0) {
+            console.warn(`⚠️ No hay chunks válidos para enviar después de la división y filtrado por longitud mínima.`);
+            return; // No hay nada que enviar
         }
 
-        console.log(`📦 El mensaje total se enviará en ${chunks.length} burbujas separadas.`);
-        for (let i = 0; i < chunks.length; i++) {
-            console.log(`   🔹 Preparando burbuja ${i + 1}/${chunks.length} (${this._byteLength(chunks[i])} bytes)`);
-            await this._executeSend(recipient, chunks[i]);
+        console.log(`📦 El mensaje total se enviará en ${finalChunks.length} burbujas separadas.`);
+        for (let i = 0; i < finalChunks.length; i++) {
+            console.log(`   🔹 Preparando burbuja ${i + 1}/${finalChunks.length} (${this._byteLength(finalChunks[i])} bytes)`);
+            await this._executeSend(recipient, finalChunks[i]);
             await new Promise(r => setTimeout(r, 1500));
         }
     }
