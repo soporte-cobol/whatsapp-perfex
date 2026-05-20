@@ -16,24 +16,33 @@ class WhatsAppService {
     async sendText(recipient, message) {
         if (!message) return;
 
-        // 1. Sanitizar PRIMERO (antes de dividir) para que los chunks se calculen sobre texto limpio
-        //    Eliminar emojis de 4 bytes (pares subrogados) que truncan bases de datos MySQL utf8 (3-byte)
+        // Eliminar emojis de 4 bytes que truncan MySQL utf8 (3-byte)
         const clean = String(message || '').replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '').trim();
 
-        // 2. Límite generoso en BYTES: 350 bytes (~175 chars españoles).
-        //    Los emojis de 4 bytes ya fueron eliminados arriba, así que no hay riesgo de truncamiento en DB.
-        const MAX_BYTES = 350;
+        // Límite conservador: 300 bytes (~150 chars en español)
+        const MAX_BYTES = 300;
 
-        if (this._byteLength(clean) > MAX_BYTES) {
-            const chunks = this._splitMessage(clean, MAX_BYTES);
-            console.log(`📦 Fragmentando mensaje en ${chunks.length} partes...`);
-            for (const chunk of chunks) {
-                await this._executeSend(recipient, chunk);
-                // Espera de 1.5s para asegurar orden y evitar spam filters
-                await new Promise(r => setTimeout(r, 1500));
+        // Nivel 1: dividir siempre por párrafos (\n\n) — cada párrafo = 1 burbuja de WhatsApp
+        const paragraphs = clean.split(/\n\n+/).map(p => p.trim()).filter(p => p.length > 0);
+
+        const chunks = [];
+        for (const para of paragraphs) {
+            if (this._byteLength(para) <= MAX_BYTES) {
+                chunks.push(para);
+            } else {
+                // Nivel 2/3: subdividir párrafo largo en oraciones/palabras
+                chunks.push(...this._splitMessage(para, MAX_BYTES));
             }
-        } else {
-            return await this._executeSend(recipient, clean);
+        }
+
+        if (chunks.length === 1) {
+            return await this._executeSend(recipient, chunks[0]);
+        }
+
+        console.log(`📦 Enviando mensaje en ${chunks.length} partes...`);
+        for (const chunk of chunks) {
+            await this._executeSend(recipient, chunk);
+            await new Promise(r => setTimeout(r, 1500));
         }
     }
 
