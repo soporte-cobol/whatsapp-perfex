@@ -30,6 +30,14 @@ class WhatsAppService {
     async _executeSend(recipient, message) {
         try {
             const url = `${this.baseUrl}/send/whatsapp`;
+
+            // Log de depuración seguro para verificar credenciales
+            const secretStr = String(this.secret || '');
+            const accountStr = String(this.accountId || '');
+            const maskedSecret = secretStr ? `${secretStr.substring(0, 4)}...${secretStr.substring(Math.max(0, secretStr.length - 4))}` : 'UNDEFINED';
+            const maskedAccount = accountStr ? `${accountStr.substring(0, 8)}...${accountStr.substring(Math.max(0, accountStr.length - 8))}` : 'UNDEFINED';
+            console.log(`📤 Enviando fragmento a ${recipient} | Credenciales en uso: Account=[${maskedAccount}], Secret=[${maskedSecret}]`);
+
             const form = new FormData();
             form.append('secret', this.secret);
             form.append('account', this.accountId);
