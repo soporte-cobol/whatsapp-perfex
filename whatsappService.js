@@ -8,14 +8,24 @@ class WhatsAppService {
         this.baseUrl = 'https://uno.cobol.com.co/api';
     }
 
+    // Calcula el tamaño en bytes UTF-8 de un string (como lo cuenta la base de datos MySQL utf8)
+    _byteLength(str) {
+        return Buffer.byteLength(str, 'utf8');
+    }
+
     async sendText(recipient, message) {
         if (!message) return;
 
-        // Ajustamos a 200 para garantizar compatibilidad total con límites del gateway
-        const MAX_LENGTH = 200; 
-        
-        if (message.length > MAX_LENGTH) {
-            const chunks = this._splitMessage(message, MAX_LENGTH);
+        // 1. Sanitizar PRIMERO (antes de dividir) para que los chunks se calculen sobre texto limpio
+        //    Eliminar emojis de 4 bytes (pares subrogados) que truncan bases de datos MySQL utf8 (3-byte)
+        const clean = String(message || '').replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '').trim();
+
+        // 2. Límite en BYTES (no en chars) para respetar el límite del gateway de Zender.
+        //    160 bytes es el estándar seguro: cubre ~80 chars españoles acentuados o ~160 chars ASCII.
+        const MAX_BYTES = 160;
+
+        if (this._byteLength(clean) > MAX_BYTES) {
+            const chunks = this._splitMessage(clean, MAX_BYTES);
             console.log(`📦 Fragmentando mensaje en ${chunks.length} partes...`);
             for (const chunk of chunks) {
                 await this._executeSend(recipient, chunk);
@@ -23,7 +33,7 @@ class WhatsAppService {
                 await new Promise(r => setTimeout(r, 1500));
             }
         } else {
-            return await this._executeSend(recipient, message);
+            return await this._executeSend(recipient, clean);
         }
     }
 
@@ -43,9 +53,7 @@ class WhatsAppService {
             form.append('account', this.accountId);
             form.append('recipient', recipient);
             form.append('type', 'text');
-            // Sanitizar mensaje removiendo emojis de 4 bytes (pares subrogados) para evitar truncamiento en la base de datos UTF-8 de Zender
-            const sanitizedMessage = String(message || '').replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '');
-            form.append('message', sanitizedMessage);
+            form.append('message', message);
 
             const response = await axios.post(url, form, {
                 headers: form.getHeaders(),
@@ -65,24 +73,41 @@ class WhatsAppService {
         }
     }
 
-    _splitMessage(text, limit) {
+    // Divide el texto en chunks respetando límite en BYTES (no en chars JS)
+    // Corta siempre en oraciones completas o palabras, nunca a mitad de palabra
+    _splitMessage(text, maxBytes) {
         const chunks = [];
-        let current = text;
-        while (current.length > limit) {
-            // Buscamos un punto o un espacio para no cortar palabras
-            let splitAt = current.lastIndexOf('. ', limit);
-            
-            if (splitAt !== -1) {
-                // Si encontramos un punto seguido de espacio, cortamos incluyendo el punto (splitAt + 1)
-                chunks.push(current.substring(0, splitAt + 1).trim());
-                current = current.substring(splitAt + 1).trim();
-            } else {
-                splitAt = current.lastIndexOf(' ', limit);
-                if (splitAt === -1) splitAt = limit;
-                chunks.push(current.substring(0, splitAt).trim());
-                current = current.substring(splitAt).trim();
+        let current = text.trim();
+
+        while (this._byteLength(current) > maxBytes) {
+            // Intentar cortar en el último punto seguido de espacio dentro del límite de bytes
+            let splitAt = -1;
+            let probe = 0;
+            let lastPeriod = -1;
+            let lastSpace = -1;
+
+            // Recorrer caracter por caracter contando bytes reales
+            for (let i = 0; i < current.length; i++) {
+                const charBytes = Buffer.byteLength(current[i], 'utf8');
+                if (probe + charBytes > maxBytes) break;
+                probe += charBytes;
+                if (current[i] === '.' && i + 1 < current.length && current[i + 1] === ' ') lastPeriod = i;
+                if (current[i] === ' ') lastSpace = i;
             }
+
+            if (lastPeriod !== -1) {
+                splitAt = lastPeriod + 1; // incluir el punto
+            } else if (lastSpace !== -1) {
+                splitAt = lastSpace;
+            } else {
+                // Sin espacio ni punto, cortar en el último byte seguro
+                splitAt = probe;
+            }
+
+            chunks.push(current.substring(0, splitAt).trim());
+            current = current.substring(splitAt).trim();
         }
+
         if (current) chunks.push(current);
         return chunks;
     }
