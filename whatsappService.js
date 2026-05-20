@@ -34,8 +34,9 @@ class WhatsAppService {
         }
 
         console.log(`📦 El mensaje total se enviará en ${chunks.length} burbujas separadas.`);
-        for (const chunk of chunks) {
-            await this._executeSend(recipient, chunk);
+        for (let i = 0; i < chunks.length; i++) {
+            console.log(`   🔹 Preparando burbuja ${i + 1}/${chunks.length} (${this._byteLength(chunks[i])} bytes)`);
+            await this._executeSend(recipient, chunks[i]);
             await new Promise(r => setTimeout(r, 1500));
         }
     }

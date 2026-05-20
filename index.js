@@ -67,7 +67,8 @@ app.post('/ai/plugin', async (req, res) => {
         }
 
         console.log(`\n-----------------------------------------`);
-        console.log(`📩 MENSAJE: "${msg}" | TEL: ${cleanFrom}`);
+        console.log(`📩 ORIGINAL: "${rawMsg.substring(0, 60)}${rawMsg.length > 60 ? '...' : ''}"`);
+        console.log(`📩 PROCESADO (Sin firma): "${msg}" | TEL: ${cleanFrom}`);
 
         let isAccountInquiry = false;
         
