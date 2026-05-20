@@ -13,7 +13,7 @@ const cleanString = (val) => String(val || "").replace(/^["']|["']$/g, "").trim(
 
 const perfex = new PerfexService(cleanString(process.env.PERFEX_BASE_URL), cleanString(process.env.PERFEX_API_TOKEN));
 const whatsapp = new WhatsAppService(cleanString(process.env.WHATSAPP_API_SECRET), cleanString(process.env.WHATSAPP_ACCOUNT_ID));
-const gemini = new GeminiService(cleanString(process.env.GEMINI_API_KEY), "gemini-2.5-flash");
+const gemini = new GeminiService(cleanString(process.env.GEMINI_API_KEY), "gemini-1.5-flash");
 
 app.get('/ai/debug', (req, res) => {
     const mask = (val) => {
@@ -37,15 +37,22 @@ app.get('/ai/debug', (req, res) => {
 
 app.post('/ai/plugin', async (req, res) => {
     try {
+        // Log de entrada inmediato para depuración
+        console.log(`\n📥 WEBHOOK RECIBIDO - ${new Date().toISOString()}`);
+        
         const data = req.body?.data || req.body || {};
         const rawMsg = (data.message || "").trim();
         // Eliminar la firma del plan gratuito de la API para que no ensucie el procesamiento
         const msg = rawMsg.replace(/Envía:\s*uno\.cobol\.com\.co/gi, "").trim();
         const from = String(data.phone || data.wid || "");
         const secret = cleanString(req.body?.secret || req.body?.token);
-
         const configSecret = cleanString(process.env.WEBHOOK_API_KEY);
-        if (secret !== configSecret) return res.json({ status: "error" });
+
+        if (secret !== configSecret) {
+            console.error(`❌ ERROR DE AUTENTICACIÓN: Secret recibido [${secret}] no coincide con configurado.`);
+            return res.json({ status: "error", message: "Unauthorized" });
+        }
+
         if (!msg) return res.json({ status: "success", stop: true });
 
         const cleanFrom = from.split('@')[0].replace(/\D/g, '');
@@ -198,7 +205,7 @@ INSTRUCCION ESPECIAL: Presenta este calculo de forma calida. Menciona que incluy
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
     console.log(`\n🚀 LAURA (MODO DIOS 3.1) ONLINE | PUERTO ${PORT}`);
     
     // Imprimir resumen de variables cargadas (enmascaradas) para diagnóstico
@@ -223,4 +230,9 @@ app.listen(PORT, () => {
     console.log(`  - GEMINI_API_KEY:      ${mask(process.env.GEMINI_API_KEY)}`);
     console.log(`  - GEMINI_MODEL:        ${process.env.GEMINI_MODEL || '❌ NO DEFINIDO'}`);
     console.log(`-----------------------------------------\n`);
+});
+
+server.on('error', (e) => {
+    if (e.code === 'EADDRINUSE') console.error(`❌ El puerto ${PORT} ya está en uso. ¿Hay otra instancia corriendo?`);
+    else console.error(`❌ Error al iniciar servidor:`, e);
 });
