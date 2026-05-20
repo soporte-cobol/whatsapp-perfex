@@ -50,7 +50,7 @@ class WhatsAppService {
         }
 
         // Filtrar cualquier chunk que, después de los intentos de fusión, siga siendo demasiado corto
-        finalChunks = finalChunks.chunks.filter(chunk => this._byteLength(chunk) >= MIN_CHUNK_BYTES);
+        finalChunks = finalChunks.filter(chunk => this._byteLength(chunk) >= MIN_CHUNK_BYTES);
 
         console.log(`📝 Procesando mensaje de ${this._byteLength(clean)} bytes.`);
 
