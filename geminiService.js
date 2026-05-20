@@ -6,10 +6,9 @@ class GeminiService {
         const preferredModel = process.env.GEMINI_MODEL || defaultModel;
         // Lista de modelos disponibles y sus fallbacks
         this.models = [
-            'gemini-2.5-flash',
             'gemini-2.0-flash',
             'gemini-1.5-flash',
-            'gemini-3.1-flash-lite',
+            'gemini-1.5-flash-8b',
             'gemini-flash-latest'
         ];
         if (preferredModel && !this.models.includes(preferredModel)) {

@@ -44,8 +44,8 @@ app.post('/ai/plugin', async (req, res) => {
         const rawMsg = (data.message || "").trim();
         // Eliminar la firma del plan gratuito de la API para que no ensucie el procesamiento
         const msg = rawMsg.replace(/Envía:\s*uno\.cobol\.com\.co/gi, "").trim();
-        const from = String(data.phone || data.wid || "");
-        const secret = cleanString(req.body?.secret || req.body?.token);
+        const from = String(data.phone || data.wid || data.from || data.sender || "");
+        const secret = cleanString(req.body?.secret || req.body?.token || req.headers['x-api-key']);
         const configSecret = cleanString(process.env.WEBHOOK_API_KEY);
 
         if (secret !== configSecret) {
@@ -57,7 +57,7 @@ app.post('/ai/plugin', async (req, res) => {
 
         const cleanFrom = from.split('@')[0].replace(/\D/g, '');
         if (!cleanFrom) {
-            console.warn("⚠️ Petición recibida sin número de teléfono de destino válido.");
+            console.warn("⚠️ Petición recibida sin número de teléfono de destino válido. Payload:", JSON.stringify(req.body));
             return res.json({ status: "success", stop: true });
         }
 
