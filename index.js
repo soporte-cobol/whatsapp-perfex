@@ -13,7 +13,7 @@ const cleanString = (val) => String(val || "").replace(/^["']|["']$/g, "").trim(
 
 const perfex = new PerfexService(cleanString(process.env.PERFEX_BASE_URL), cleanString(process.env.PERFEX_API_TOKEN));
 const whatsapp = new WhatsAppService(cleanString(process.env.WHATSAPP_API_SECRET), cleanString(process.env.WHATSAPP_ACCOUNT_ID));
-const gemini = new GeminiService(cleanString(process.env.GEMINI_API_KEY), "gemini-1.5-flash");
+const gemini = new GeminiService(cleanString(process.env.GEMINI_API_KEY), "gemini-1.5-pro");
 
 app.get('/ai/debug', (req, res) => {
     const mask = (val) => {
@@ -37,14 +37,22 @@ app.get('/ai/debug', (req, res) => {
 
 app.post('/ai/plugin', async (req, res) => {
     try {
-        // Log de entrada inmediato para depuración
+        // 1. LOG INMEDIATO: Ver exactamente qué llega al servidor
         console.log(`\n📥 WEBHOOK RECIBIDO - ${new Date().toISOString()}`);
+        console.log(`📦 CUERPO (BODY):`, JSON.stringify(req.body));
+        console.log(`🔑 HEADERS:`, JSON.stringify({ "x-api-key": req.headers['x-api-key'], "content-type": req.headers['content-type'] }));
         
         const data = req.body?.data || req.body || {};
         const rawMsg = (data.message || "").trim();
         // Eliminar la firma del plan gratuito de la API para que no ensucie el procesamiento
         const msg = rawMsg.replace(/Envía:\s*uno\.cobol\.com\.co/gi, "").trim();
-        const from = String(data.phone || data.wid || data.from || data.sender || "");
+
+        // Intentar capturar el teléfono de múltiples fuentes posibles
+        const from = String(
+            data.phone || data.wid || data.from || data.sender || 
+            req.body?.phone || req.body?.sender || ""
+        );
+
         const secret = cleanString(req.body?.secret || req.body?.token || req.headers['x-api-key']);
         const configSecret = cleanString(process.env.WEBHOOK_API_KEY);
 
@@ -53,11 +61,11 @@ app.post('/ai/plugin', async (req, res) => {
             return res.json({ status: "error", message: "Unauthorized" });
         }
 
-        if (!msg) return res.json({ status: "success", stop: true });
+        if (!msg) { console.log("ℹ️ Mensaje vacío, ignorando."); return res.json({ status: "success", stop: true }); }
 
         const cleanFrom = from.split('@')[0].replace(/\D/g, '');
         if (!cleanFrom) {
-            console.warn("⚠️ Petición recibida sin número de teléfono de destino válido. Payload:", JSON.stringify(req.body));
+            console.warn("⚠️ No se pudo extraer un número de teléfono. Revisa el formato del JSON arriba.");
             return res.json({ status: "success", stop: true });
         }
 
