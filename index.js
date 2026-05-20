@@ -9,18 +9,21 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const perfex = new PerfexService(process.env.PERFEX_BASE_URL, process.env.PERFEX_API_TOKEN);
-const whatsapp = new WhatsAppService(process.env.WHATSAPP_API_SECRET, process.env.WHATSAPP_ACCOUNT_ID);
-const gemini = new GeminiService(process.env.GEMINI_API_KEY, "gemini-2.5-flash");
+const cleanString = (val) => String(val || "").replace(/^["']|["']$/g, "").trim();
+
+const perfex = new PerfexService(cleanString(process.env.PERFEX_BASE_URL), cleanString(process.env.PERFEX_API_TOKEN));
+const whatsapp = new WhatsAppService(cleanString(process.env.WHATSAPP_API_SECRET), cleanString(process.env.WHATSAPP_ACCOUNT_ID));
+const gemini = new GeminiService(cleanString(process.env.GEMINI_API_KEY), "gemini-2.5-flash");
 
 app.post('/ai/plugin', async (req, res) => {
     try {
         const data = req.body?.data || req.body || {};
         const msg = (data.message || "").trim();
         const from = String(data.phone || data.wid || "");
-        const secret = req.body?.secret || req.body?.token || "";
+        const secret = cleanString(req.body?.secret || req.body?.token);
 
-        if (secret !== process.env.WEBHOOK_API_KEY) return res.json({ status: "error" });
+        const configSecret = cleanString(process.env.WEBHOOK_API_KEY);
+        if (secret !== configSecret) return res.json({ status: "error" });
         if (!msg) return res.json({ status: "success", stop: true });
 
         const cleanFrom = from.split('@')[0].replace(/\D/g, '');
@@ -123,7 +126,29 @@ app.post('/ai/plugin', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-    app.listen(PORT, () => {
-        console.log(`\n🚀 LAURA (MODO DIOS 3.1) ONLINE | PUERTO ${PORT}`);
-        console.log(`-----------------------------------------\n`);
-    });
+app.listen(PORT, () => {
+    console.log(`\n🚀 LAURA (MODO DIOS 3.1) ONLINE | PUERTO ${PORT}`);
+    
+    // Imprimir resumen de variables cargadas (enmascaradas) para diagnóstico
+    const mask = (val) => {
+        if (!val) return '❌ NO CARGADO (Vacío)';
+        const raw = String(val);
+        const str = cleanString(raw);
+        let status = `${str.substring(0, 4)}...${str.substring(Math.max(0, str.length - 4))} (Longitud: ${str.length})`;
+        if (raw.startsWith('"') || raw.startsWith("'")) {
+            status += ' ⚠️ Contiene Comillas!';
+        }
+        if (raw.includes('\r')) {
+            status += ' ⚠️ Contiene Retorno de Carro (CRLF)!';
+        }
+        return status;
+    };
+    
+    console.log(`🔍 DIAGNÓSTICO DE VARIABLES DE ENTORNO:`);
+    console.log(`  - WEBHOOK_API_KEY:     ${mask(process.env.WEBHOOK_API_KEY)}`);
+    console.log(`  - WHATSAPP_API_SECRET: ${mask(process.env.WHATSAPP_API_SECRET)}`);
+    console.log(`  - WHATSAPP_ACCOUNT_ID: ${mask(process.env.WHATSAPP_ACCOUNT_ID)}`);
+    console.log(`  - GEMINI_API_KEY:      ${mask(process.env.GEMINI_API_KEY)}`);
+    console.log(`  - GEMINI_MODEL:        ${process.env.GEMINI_MODEL || '❌ NO DEFINIDO'}`);
+    console.log(`-----------------------------------------\n`);
+});
