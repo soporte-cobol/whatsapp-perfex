@@ -6,16 +6,17 @@ class GeminiService {
         const preferredModel = process.env.GEMINI_MODEL || defaultModel;
         // Lista de modelos disponibles y sus fallbacks
         this.models = [
-            'gemini-1.5-pro',
-            'gemini-2.0-flash',
-            'gemini-1.5-flash',
-            'gemini-flash-latest'
+            'gemini-3.5-flash',
+            'gemini-3.1-flash-lite',
+            'gemini-2.5-pro',
+            'gemini-2.5-flash',
+            'gemini-2.0-flash'
         ];
         if (preferredModel && !this.models.includes(preferredModel)) {
             this.models.unshift(preferredModel);
         }
         this.currentModelIndex = 0;
-        this.baseUrl = 'https://generativelanguage.googleapis.com/v1beta';
+        this.baseUrl = 'https://generativelanguage.googleapis.com/v1';
     }
 
     isReady() {

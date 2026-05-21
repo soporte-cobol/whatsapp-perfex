@@ -9,11 +9,20 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Middleware para capturar errores de JSON mal formado antes de llegar a la ruta
+app.use((err, req, res, next) => {
+    if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+        console.error('❌ Error de sintaxis en el JSON recibido:', err.message);
+        return res.status(400).send({ status: "error", message: "Invalid JSON" });
+    }
+    next();
+});
+
 const cleanString = (val) => String(val || "").replace(/^["']|["']$/g, "").trim();
 
 const perfex = new PerfexService(cleanString(process.env.PERFEX_BASE_URL), cleanString(process.env.PERFEX_API_TOKEN));
 const whatsapp = new WhatsAppService(cleanString(process.env.WHATSAPP_API_SECRET), cleanString(process.env.WHATSAPP_ACCOUNT_ID));
-const gemini = new GeminiService(cleanString(process.env.GEMINI_API_KEY), "gemini-1.5-pro");
+const gemini = new GeminiService(cleanString(process.env.GEMINI_API_KEY), "gemini-3.5-flash");
 
 app.get('/ai/debug', (req, res) => {
     const mask = (val) => {
@@ -39,8 +48,10 @@ app.post('/ai/plugin', async (req, res) => {
     try {
         // 1. LOG INMEDIATO: Ver exactamente qué llega al servidor
         console.log(`\n📥 WEBHOOK RECIBIDO - ${new Date().toISOString()}`);
-        console.log(`📦 CUERPO (BODY):`, JSON.stringify(req.body));
-        console.log(`🔑 HEADERS:`, JSON.stringify({ "x-api-key": req.headers['x-api-key'], "content-type": req.headers['content-type'] }));
+        console.log(`📦 CUERPO (BODY):`, req.body ? JSON.stringify(req.body) : 'VACÍO');
+        if (req.headers['x-api-key']) {
+            console.log(`🔑 AUTH: X-API-KEY Detectado`);
+        }
         
         const data = req.body?.data || req.body || {};
         const rawMsg = (data.message || "").trim();
