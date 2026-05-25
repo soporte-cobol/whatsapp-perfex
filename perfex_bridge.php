@@ -56,6 +56,16 @@ switch ($action) {
         $response = ($r = mysqli_fetch_assoc($res)) ? array_merge($r, ['found' => true]) : ['found' => false];
         break;
 
+    case 'get_customer_by_vat':
+        $vat = mysqli_real_escape_string($conn, trim($_GET['vat'] ?? ''));
+        $sql = "SELECT c.userid as customerId, c.id as contactId, c.firstname, c.lastname, cl.company, c.email, cl.vat 
+                FROM tblclients cl 
+                LEFT JOIN tblcontacts c ON cl.userid = c.userid AND c.is_primary = 1 
+                WHERE cl.vat = '$vat' LIMIT 1";
+        $res = mysqli_query($conn, $sql);
+        $response = ($r = mysqli_fetch_assoc($res)) ? array_merge($r, ['found' => true]) : ['found' => false];
+        break;
+
     case 'get_invoices':
         $cid = intval($_GET['customer_id']);
         $sql = "SELECT id, number, total, status, hash FROM tblinvoices WHERE clientid = $cid AND status != 2 ORDER BY date DESC LIMIT 5";
@@ -71,6 +81,23 @@ switch ($action) {
         $sql = "SELECT name as travel_plan FROM tblprojects WHERE clientid = $cid LIMIT 3";
         $res = mysqli_query($conn, $sql);
         while ($row = mysqli_fetch_assoc($res)) $response[] = $row;
+        break;
+
+    case 'create_ticket':
+        $data = json_decode(file_get_contents('php://input'), true);
+        $subject = mysqli_real_escape_string($conn, $data['subject'] ?? 'Consulta desde WhatsApp');
+        $message = mysqli_real_escape_string($conn, $data['message'] ?? '');
+        $priority = intval($data['priority'] ?? 2);
+        $userid = intval($data['customerId'] ?? 0);
+        
+        $sql = "INSERT INTO tbltickets (subject, message, priority, userid, date, status) 
+                VALUES ('$subject', '$message', $priority, $userid, '" . date('Y-m-d H:i:s') . "', 1)";
+        
+        if (mysqli_query($conn, $sql)) {
+            $response = ['status' => 'success', 'ticket_id' => mysqli_insert_id($conn)];
+        } else {
+            $response = ['status' => 'error', 'message' => mysqli_error($conn)];
+        }
         break;
 }
 
