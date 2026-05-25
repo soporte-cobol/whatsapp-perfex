@@ -46,6 +46,13 @@ app.get('/ai/debug', (req, res) => {
 
 app.post('/ai/plugin', async (req, res) => {
     try {
+        // Verificar si el bot debe operar según el horario configurado
+        if (!aiConfig.isBotActive()) {
+            const now = new Date();
+            console.log(`⏳ [HORARIO LABORAL] Bot desactivado (Hora: ${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}). Ignorando mensaje.`);
+            return res.json({ status: "success", message: "Bot inactive during business hours", stop: true });
+        }
+
         // 1. LOG INMEDIATO: Ver exactamente qué llega al servidor
         console.log(`\n📥 WEBHOOK RECIBIDO - ${new Date().toISOString()}`);
         console.log(`📦 CUERPO (BODY):`, req.body ? JSON.stringify(req.body) : 'VACÍO');

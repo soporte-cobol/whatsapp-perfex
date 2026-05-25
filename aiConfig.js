@@ -116,11 +116,37 @@ function calcularPrecio(destino, adultos = 1, ninos = 0, bebes = 0) {
     };
 }
 
+/**
+ * Determina si el bot debe estar activo basándose en el horario laboral.
+ * El bot NO funciona en estos rangos (Horario de oficina):
+ * Lunes a Viernes: 8:00 - 17:00
+ * Sábados: 8:00 - 14:00
+ * Domingos: Libre (El bot funciona todo el día)
+ */
+function isBotActive() {
+    const now = new Date();
+    const day = now.getDay(); // 0 (Dom) a 6 (Sab)
+    const hour = now.getHours();
+
+    // Lunes (1) a Viernes (5): 8 AM a 5 PM (17:00)
+    if (day >= 1 && day <= 5) {
+        if (hour >= 8 && hour < 17) return false;
+    }
+    // Sábado (6): 8 AM a 2 PM (14:00)
+    if (day === 6) {
+        if (hour >= 8 && hour < 14) return false;
+    }
+
+    // Si no es ninguna de las anteriores, el bot está activo
+    return true;
+}
+
 module.exports = {
     DESTINATIONS,
     findDestination,
     calcularPrecio,
     buildDestinationsCatalog,
+    isBotActive,
 
     BOT_NAME: "Laura",
 
