@@ -3,6 +3,7 @@
  * Bridge de Emergencia V7 - MÁXIMA COMPATIBILIDAD
  * Ubicación recomendada: /assets/perfex_bridge.php
  */
+ob_start();
 header('Content-Type: application/json; charset=utf-8');
 define('BASEPATH', 'index.php');
 
@@ -116,7 +117,7 @@ switch ($action) {
         $phone = mysqli_real_escape_string($conn, $data['phonenumber'] ?? '');
         $vat = mysqli_real_escape_string($conn, $data['vat'] ?? '');
 
-        // 1. Crear Cliente - SQL con campos obligatorios de Perfex
+        // 1. Crear Cliente - Incluimos campos base para evitar rechazos de integridad en Perfex
         $sql1 = "INSERT INTO tblclients (company, phonenumber, vat, datecreated, active, default_language, default_currency, addedfrom) 
                  VALUES ('$name', '$phone', '$vat', '" . date('Y-m-d H:i:s') . "', 1, 'spanish', 0, 0)";
 
@@ -135,7 +136,7 @@ switch ($action) {
             
             $response = ['status' => 'success', 'customerId' => $userid];
         } else {
-            $response = ['status' => 'error', 'message' => 'MySQL Error: ' . mysqli_error($conn)];
+            $response = ['status' => 'error', 'message' => 'DB Error: ' . mysqli_error($conn)];
         }
         break;
 

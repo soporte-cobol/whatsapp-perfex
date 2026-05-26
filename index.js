@@ -139,13 +139,17 @@ app.post('/ai/plugin', async (req, res) => {
                     customer.found = true;
                     customer.email = session.email;
                     customer.firstname = clientName;
-                    console.log(`✅ Cliente y Contacto Creados. ID: ${customer.customerId} | VAT: ${session.vat || 'N/A'}`);
+                    console.log(`✅ Cliente Creado y Vinculado en Memoria. ID: ${customer.customerId}`);
                 } else {
-                    console.warn("⚠️ Fallo en creación directa. Intentando búsqueda de rescate...");
+                    console.warn(`⚠️ El CRM no confirmó la creación (Respuesta: ${JSON.stringify(res)}). Intentando rescate...`);
                     // Búsqueda de último recurso por si el cliente ya existía en el CRM
                     if (session.vat) customer = await perfex.getCustomerByVat(session.vat);
                     if (!customer.found && session.email) customer = await perfex.getCustomerByEmail(session.email);
                     
+                    if (customer.found) {
+                        console.log(`✅ Cliente recuperado: ${customer.customerId}`);
+                    }
+
                     if (!customer.found) {
                         console.error("❌ El CRM rechazó la creación del cliente. Respuesta:", JSON.stringify(res));
                     }
