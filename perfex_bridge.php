@@ -39,7 +39,9 @@ mysqli_set_charset($conn, "utf8");
 $raw_body = file_get_contents('php://input');
 $data_json = json_decode($raw_body, true) ?: [];
 $action = $_GET['action'] ?? ($data_json['action'] ?? ($_POST['action'] ?? ''));
-$response = (object)["status" => "error", "message" => "Action not found: $action"];
+
+// Inicialización robusta como objeto para evitar el error de los corchetes []
+$response = (object)["status" => "error", "message" => "Proceso no iniciado", "action" => $action];
 
 switch ($action) {
     case 'get_customer_by_phone':
@@ -117,7 +119,7 @@ switch ($action) {
         $phone = mysqli_real_escape_string($conn, $data['phonenumber'] ?? '');
         $vat = mysqli_real_escape_string($conn, $data['vat'] ?? '');
 
-        // 1. Crear Cliente - Espejo exacto del registro exitoso (ID Moneda 3, País 49, Bogotá, AddedFrom 1)
+        // 1. Crear Cliente - Registro Espejo (Moneda 3, País 49, Creado por 1)
         $sql1 = "INSERT INTO tblclients (company, phonenumber, vat, datecreated, active, default_currency, addedfrom, country, city, billing_country, shipping_country) 
                  VALUES ('$name', '$phone', '$vat', '" . date('Y-m-d H:i:s') . "', 1, 3, 1, 49, 'Bogotá DC', 49, 49)";
 
@@ -134,9 +136,12 @@ switch ($action) {
                      VALUES ($userid, '$fname', '$lname', '$email', '$phone', 1)";
             @mysqli_query($conn, $sql2); // El @ evita que errores de duplicado rompan el JSON
             
-            $response = (object)['status' => 'success', 'customerId' => $userid];
+            $response->status = 'success';
+            $response->customerId = $userid;
         } else {
-            $response = (object)['status' => 'error', 'message' => 'MySQL Error: ' . mysqli_error($conn), 'sql' => $sql1];
+            $response->status = 'error';
+            $response->message = 'DB Error: ' . mysqli_error($conn);
+            $response->sql = $sql1;
         }
         break;
 

@@ -135,21 +135,18 @@ app.post('/ai/plugin', async (req, res) => {
                 });
                 
                 const isSuccess = res && (res.status === 'success' || res.customerId);
-                
                 if (isSuccess) {
                     customer.customerId = res.customerId;
                     customer.found = true;
                     customer.firstname = clientName;
-                    console.log(`✅ Cliente Creado Exitosamente: ${clientName} (ID: ${customer.customerId})`);
+                    customer.email = session.email;
+                    console.log(`✅ CLIENTE REGISTRADO: ${clientName} (ID: ${customer.customerId})`);
                 } else {
-                    console.warn(`⚠️ Fallo en creación (Respuesta: ${JSON.stringify(res)}). Buscando rescate...`);
+                    console.warn(`⚠️ Error CRM (Respuesta: ${JSON.stringify(res)}). Rescatando...`);
                     if (session.vat) customer = await perfex.getCustomerByVat(session.vat);
                     if (!customer.found && session.email) customer = await perfex.getCustomerByEmail(session.email);
-                    if (customer.found) console.log(`✅ Cliente rescatado: ${customer.firstname} (ID: ${customer.customerId})`);
                 }
-            } catch (e) {
-                console.error("❌ ERROR AL CREAR CLIENTE:", e.message);
-            }
+            } catch (e) { console.error("❌ ERROR REGISTRO:", e.message); }
         }
 
         // 7. CONTEXTO IA
