@@ -219,7 +219,13 @@ app.post('/ai/plugin', async (req, res) => {
                         priority: 2
                     }).then(async r => {
                         console.log(`✅ Ticket DB Creado:`, JSON.stringify(r));
-                        // La notificación se delega al webhook /ai/ticket-created que llamará tu plugin
+                        if (r && (r.status === 'success' || r.ticket_id)) {
+                            const tkey = r.ticketkey || '';
+                            const ticketUrl = `https://portal.gmgroup.com.co/forms/tickets/${tkey}`;
+                            const notification = `🎫 *¡Caso Registrado!*\n\n*Asunto:* ${subject}\n\n🔗 Puedes seguir tu solicitud aquí:\n${ticketUrl}`;
+                            await whatsapp.sendText(cleanFrom, notification);
+                            console.log(`🔔 Notificación de Ticket Creado (vía Bot) enviada a ${cleanFrom}`);
+                        }
                     }).catch(e => console.error(`❌ Error Ticket DB:`, e.message));
                 } else if (fromEmail) {
                     console.log(`📧 Simulando correo desde ${fromEmail} hacia ${deptEmail}...`);
