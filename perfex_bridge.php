@@ -119,7 +119,7 @@ switch ($action) {
         $phone = mysqli_real_escape_string($conn, $data['phonenumber'] ?? '');
         $vat = mysqli_real_escape_string($conn, $data['vat'] ?? '');
 
-        // 1. Crear Cliente - Registro Espejo (Moneda 3, País 49, Creado por 1)
+        // 1. Crear Cliente - Espejo exacto del registro exitoso (Moneda 3, País 49, Bogotá, AddedFrom 1)
         $sql1 = "INSERT INTO tblclients (company, phonenumber, vat, datecreated, active, default_currency, addedfrom, country, city, billing_country, shipping_country) 
                  VALUES ('$name', '$phone', '$vat', '" . date('Y-m-d H:i:s') . "', 1, 3, 1, 49, 'Bogotá DC', 49, 49)";
 
@@ -140,7 +140,7 @@ switch ($action) {
             $response->customerId = $userid;
         } else {
             $response->status = 'error';
-            $response->message = 'DB Error: ' . mysqli_error($conn);
+            $response->message = 'MySQL Error: ' . mysqli_error($conn);
             $response->sql = $sql1;
         }
         break;

@@ -135,14 +135,15 @@ app.post('/ai/plugin', async (req, res) => {
                 });
                 
                 const isSuccess = res && (res.status === 'success' || res.customerId);
+                
                 if (isSuccess) {
                     customer.customerId = res.customerId;
                     customer.found = true;
                     customer.firstname = clientName;
                     customer.email = session.email;
-                    console.log(`✅ CLIENTE REGISTRADO: ${clientName} (ID: ${customer.customerId})`);
+                    console.log(`✅ CLIENTE CREADO: ${clientName} (ID: ${customer.customerId})`);
                 } else {
-                    console.warn(`⚠️ Error CRM (Respuesta: ${JSON.stringify(res)}). Rescatando...`);
+                    console.warn(`⚠️ El CRM no confirmó creación (Respuesta: ${JSON.stringify(res)}). Intentando rescate...`);
                     if (session.vat) customer = await perfex.getCustomerByVat(session.vat);
                     if (!customer.found && session.email) customer = await perfex.getCustomerByEmail(session.email);
                 }
