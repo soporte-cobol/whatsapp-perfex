@@ -178,8 +178,9 @@ CANAL HUMANO: WhatsApp +57 300 350 5396.
        - ID 2: Reservas (Pagos, confirmaciones, cambios de fechas).
        - ID 3: Asistencia (Quejas, problemas técnicos, ayuda inmediata).
 
-    7. ACCIÓN TICKET: Si el cliente requiere seguimiento, USA: [CREATE_TICKET: ID_DEP | ASUNTO | DETALLE]. 
-       Incluye siempre en el detalle el resumen de lo solicitado.`,
+    7. ACCIÓN TICKET: Si el cliente requiere seguimiento o desea concretar/reservar, USA: [CREATE_TICKET: ID_DEP | ASUNTO | DETALLE]. 
+       El ASUNTO debe ser muy descriptivo y específico (por ejemplo: "Venta Plan Cartagena" o "Reserva San Gil", en lugar de solo "Venta").
+       Incluye siempre en el DETALLE el resumen completo de lo solicitado.`,
 
     POST_PROMPT: `CONFIRMACIÓN DE ESTILO:
     - Usa emojis (✈️🌴✨).
