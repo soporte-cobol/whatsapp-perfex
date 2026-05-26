@@ -87,7 +87,7 @@ app.post('/ai/plugin', async (req, res) => {
         const emailFound = msg.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
         if (emailFound) session.email = emailFound[0];
 
-        // Detección de NIF/VAT/Documento (7 a 11 dígitos)
+        // Detección de NIF/VAT/Documento (7 a 11 dígitos, evita confusiones con PAX)
         const vatMatch = msg.match(/\b\d{7,11}\b/);
         if (vatMatch) session.vat = vatMatch[0];
 
@@ -98,14 +98,13 @@ app.post('/ai/plugin', async (req, res) => {
         const destinoDetectado = aiConfig.findDestination(msg);
         if (destinoDetectado) session.destination = destinoDetectado;
 
-        // Expresión regular más estricta: Busca números pequeños (1-2 dígitos) o palabras de números
-        // vinculados obligatoriamente a la palabra "adultos" o "niños" si el número es ambiguo.
-        const paxNum = "(\\b\\d{1,2}\\b|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)";
+        // Regex Ultra-Estricto: Solo números de 1 o 2 dígitos rodeados de espacios/límites
+        const paxNum = "(^|\\s)(\\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)(\\s|$)";
         const adultosMatch = msg.match(new RegExp(paxNum + '\\s*adultos?', 'i'));
         const ninosMatch = msg.match(new RegExp(paxNum + '\\s*ni[ñn]os?', 'i'));
         
-        if (adultosMatch) session.adultos = textToNumber(adultosMatch[1]);
-        if (ninosMatch) session.ninos = textToNumber(ninosMatch[1]);
+        if (adultosMatch) session.adultos = textToNumber(adultosMatch[2]);
+        if (ninosMatch) session.ninos = textToNumber(ninosMatch[2]);
 
         // 5. IDENTIFICACIÓN CRM
         const accountKeywords = /factura|saldo|deuda|estado de cuenta|mis viajes|mi cuenta|resumen|pago/i;

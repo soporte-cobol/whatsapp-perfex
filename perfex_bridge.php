@@ -116,7 +116,7 @@ switch ($action) {
         $phone = mysqli_real_escape_string($conn, $data['phonenumber'] ?? '');
         $vat = mysqli_real_escape_string($conn, $data['vat'] ?? '');
 
-        // 1. Crear Cliente - SQL Seguro (Solo campos esenciales garantizados en Perfex)
+        // 1. Crear Cliente - SQL de Máxima Compatibilidad
         $sql1 = "INSERT INTO tblclients (company, phonenumber, vat, datecreated, active) 
                  VALUES ('$name', '$phone', '$vat', '" . date('Y-m-d H:i:s') . "', 1)";
 
@@ -135,7 +135,7 @@ switch ($action) {
             
             $response = ['status' => 'success', 'customerId' => $userid];
         } else {
-            $response = ['status' => 'error', 'message' => mysqli_error($conn), 'sql' => $sql1];
+            $response = ['status' => 'error', 'message' => 'Error DB: ' . mysqli_error($conn)];
         }
         break;
 
@@ -165,8 +165,10 @@ switch ($action) {
         break;
 }
 
-// Limpiamos cualquier salida accidental (warnings) antes de enviar el JSON
+// Limpieza de buffer para evitar que warnings de PHP corrompan el JSON
 if (ob_get_length()) ob_clean();
 
-echo json_encode((object)$response, JSON_UNESCAPED_UNICODE);
+// Forzamos que la respuesta sea un objeto JSON válido ({}) y no un array ([])
+header('Content-Type: application/json');
+echo json_encode((object)$response, JSON_UNESCAPED_UNICODE | JSON_FORCE_OBJECT);
 mysqli_close($conn);
