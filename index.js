@@ -66,7 +66,8 @@ app.post('/ai/plugin', async (req, res) => {
         const msg = rawContent.replace(/Envía:\s*uno\.cobol\.com\.co/gi, "").trim();
 
         // 2. LOGS Y CONTROL DE HORARIO
-        console.log(`\n📥 WEBHOOK RECIBIDO [${cleanFrom}] - ${new Date().toISOString()}`);
+        const nowCOL = new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota', hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        console.log(`\n📥 WEBHOOK RECIBIDO [${cleanFrom}] - ${nowCOL} (COL)`);
         if (!aiConfig.isBotActive()) {
             console.log(`⏳ [HORARIO LABORAL] Bot desactivado (Tel: ${cleanFrom}).`);
             return res.json({ status: "success", stop: true });
