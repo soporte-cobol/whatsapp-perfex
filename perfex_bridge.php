@@ -31,7 +31,8 @@ if (trim($received_token) !== trim($secret_key)) {
 $conn = mysqli_connect(APP_DB_HOSTNAME, APP_DB_USERNAME, APP_DB_PASSWORD, APP_DB_NAME);
 mysqli_set_charset($conn, "utf8");
 
-$action = $_GET['action'] ?? $_POST['action'] ?? '';
+$data_json = json_decode(file_get_contents('php://input'), true);
+$action = $_GET['action'] ?? $_POST['action'] ?? $data_json['action'] ?? '';
 $response = [];
 
 switch ($action) {
@@ -61,7 +62,7 @@ switch ($action) {
         $sql = "SELECT c.userid as customerId, c.id as contactId, c.firstname, c.lastname, cl.company, c.email, cl.vat 
                 FROM tblclients cl 
                 LEFT JOIN tblcontacts c ON cl.userid = c.userid AND c.is_primary = 1 
-                WHERE cl.vat = '$vat' LIMIT 1";
+                WHERE cl.vat LIKE '%$vat%' LIMIT 1";
         $res = mysqli_query($conn, $sql);
         $response = ($r = mysqli_fetch_assoc($res)) ? array_merge($r, ['found' => true]) : ['found' => false];
         break;
@@ -84,7 +85,7 @@ switch ($action) {
         break;
 
     case 'create_ticket':
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data = $data_json;
         $subject = mysqli_real_escape_string($conn, $data['subject'] ?? 'Consulta desde WhatsApp');
         $message = mysqli_real_escape_string($conn, $data['message'] ?? '');
         $priority = intval($data['priority'] ?? 2);
@@ -102,7 +103,7 @@ switch ($action) {
         break;
 
     case 'create_lead':
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data = $data_json;
         $name = mysqli_real_escape_string($conn, $data['name'] ?? 'Cliente WhatsApp');
         $email = mysqli_real_escape_string($conn, $data['email'] ?? '');
         $phonenumber = mysqli_real_escape_string($conn, $data['phonenumber'] ?? '');
