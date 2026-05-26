@@ -123,11 +123,11 @@ switch ($action) {
     case 'get_ticket_contact_phone':
         $tid = intval($_GET['ticket_id'] ?? 0);
         // Buscamos el teléfono del contacto asociado al ticket
-        $sql = "SELECT c.phonenumber FROM tbltickets t 
+        $sql = "SELECT c.phonenumber, t.ticketkey FROM tbltickets t 
                 JOIN tblcontacts c ON t.contactid = c.id 
                 WHERE t.ticketid = $tid LIMIT 1";
         $res = mysqli_query($conn, $sql);
-        $response = ($r = mysqli_fetch_assoc($res)) ? (object)$r : (object)['phonenumber' => null];
+        $response = ($r = mysqli_fetch_assoc($res)) ? (object)$r : (object)['phonenumber' => null, 'ticketkey' => null];
         break;
 
     case 'create_customer':

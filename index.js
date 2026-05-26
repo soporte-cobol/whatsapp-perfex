@@ -107,6 +107,9 @@ app.post('/ai/plugin', async (req, res) => {
         const nMatch = msg.match(new RegExp(numPattern + '\\s*ni[ñn]os?', 'i'));
         if (nMatch) session.ninos = textToNumber(nMatch[1]);
 
+        const bMatch = msg.match(new RegExp(numPattern + '\\s*(beb[ée]s?|infantes?)', 'i'));
+        if (bMatch) session.bebes = textToNumber(bMatch[1]);
+
         // Si dice "X personas" o "X pax" y no hay desglose, lo tomamos como adultos
         const tMatch = msg.match(new RegExp(numPattern + '\\s*(personas|pax|viajeros|en total|somos)', 'i'));
         if (tMatch && !aMatch && !nMatch) session.adultos = textToNumber(tMatch[1]);
@@ -161,8 +164,8 @@ app.post('/ai/plugin', async (req, res) => {
         if (session.destination) {
             const p = aiConfig.calcularPrecio(session.destination, session.adultos, session.ninos, session.bebes);
             const fmt = (n) => `$${n.toLocaleString('es-CO')} COP`;
-            destinoContext = `\nPLAN: ${session.destination.nombre}\nPASAJEROS: ${session.adultos} adultos, ${session.ninos} niños.\nTOTAL: ${fmt(p.total)}`;
-            console.log(`💰 PAX: ${session.adultos}A | ${session.destination.nombre}`);
+            destinoContext = `\nPLAN: ${session.destination.nombre}\nPASAJEROS: ${session.adultos} adultos, ${session.ninos} niños, ${session.bebes} bebés.\nTOTAL: ${fmt(p.total)}`;
+            console.log(`💰 PAX: ${session.adultos}A, ${session.ninos}N, ${session.bebes}B | ${session.destination.nombre}`);
         }
 
         // 8. GENERACIÓN RESPUESTA
@@ -171,7 +174,7 @@ app.post('/ai/plugin', async (req, res) => {
             const [inv, proj] = await Promise.all([perfex.getInvoices(customer.customerId).catch(()=>[]), perfex.getProjects(customer.customerId).catch(()=>[])]);
             let rigid = `*RESUMEN GM GROUP*\n` + (inv.length ? `📄 Facturas:\n` + inv.map(i => `• ${i.number}: $${i.total}`).join('\n') : `✅ Sin deudas.`);
             await whatsapp.sendText(cleanFrom, rigid);
-            aiResponse = await gemini.generateText(`${aiConfig.PRE_PROMPT}\nCLIENTE IDENTIFICADO: ${customer.firstname || 'Usuario'}\nCORREO: ${session.email || customer.email}${destinoContext}\nINSTRUCCIÓN: Ya identificamos al cliente. Si quiere reservar o concretar, usa [CREATE_TICKET: 1 | Venta | Resumen]. NO vuelvas a pedir el correo bajo ninguna circunstancia.\nPREGUNTA: "${msg}"\n${aiConfig.POST_PROMPT}`);
+            aiResponse = await gemini.generateText(`${aiConfig.PRE_PROMPT}\nCLIENTE IDENTIFICADO: ${customer.firstname || 'Usuario'}\nCORREO: ${session.email || customer.email}${destinoContext}\nINSTRUCCIÓN: Ya identificamos al cliente. Usa el desglose de pasajeros de destinoContext para el ticket. Si quiere reservar, usa [CREATE_TICKET: 1 | Venta | Resumen]. NO vuelvas a pedir el correo.\nPREGUNTA: "${msg}"\n${aiConfig.POST_PROMPT}`);
         } else {
             const instr = session.email ? `Ya tienes su correo (${session.email}). Si quiere concretar, usa [CREATE_TICKET: 1 | Venta | Detalle].` : "Pide el correo amablemente.";
             aiResponse = await gemini.generateText(`${aiConfig.PRE_PROMPT}\n${destinoContext}\nINSTRUCCIÓN: ${instr}\nPREGUNTA: "${msg}"\n${aiConfig.POST_PROMPT}`);
@@ -237,11 +240,12 @@ app.post('/ai/staff-reply', async (req, res) => {
     if (secret !== process.env.WEBHOOK_API_KEY) return res.status(401).json({ status: "error" });
 
     try {
-        const phone = await perfex.getTicketContactPhone(ticket_id);
-        if (phone) {
-            const cleanPhone = phone.replace(/\D/g, '');
+        const ticketData = await perfex.getTicketContactPhone(ticket_id);
+        if (ticketData && ticketData.phonenumber) {
+            const cleanPhone = ticketData.phonenumber.replace(/\D/g, '');
             const formattedPhone = `+${cleanPhone}`;
-            const notification = `✉️ *Nueva respuesta de ${staff_name}*\n\n"${message.substring(0, 300)}${message.length > 300 ? '...' : ''}"\n\n🔗 Revisa la respuesta completa aquí:\nhttps://portal.gmgroup.com.co/forms/tickets/view/${ticket_id}`;
+            const ticketUrl = `https://portal.gmgroup.com.co/forms/tickets/${ticketData.ticketkey}`;
+            const notification = `✉️ *Nueva respuesta de ${staff_name}*\n\n"${message.substring(0, 300)}${message.length > 300 ? '...' : ''}"\n\n🔗 Revisa la respuesta completa aquí:\n${ticketUrl}`;
             await whatsapp.sendText(formattedPhone, notification);
             console.log(`🔔 Notificación de Staff enviada a ${formattedPhone}`);
         }
