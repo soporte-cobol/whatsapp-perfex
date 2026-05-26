@@ -125,8 +125,8 @@ const DEPT_EMAILS = {
 /**
  * Determina si el bot debe estar activo basándose en el horario laboral.
  * El bot NO funciona en estos rangos (Horario de oficina):
- * Lunes a Viernes: 8:00 - 17:00
- * Sábados: 8:00 - 14:00
+ * Lunes a Viernes: 10:00 - 18
+ * Sábados: 10:00 - 18:00
  * Domingos: Libre (El bot funciona todo el día)
  */
 function isBotActive() {
@@ -134,13 +134,13 @@ function isBotActive() {
     const day = now.getDay(); // 0 (Dom) a 6 (Sab)
     const hour = now.getHours();
 
-    // Lunes (1) a Viernes (5): 8 AM a 5 PM (17:00)
+    // Lunes (1) a Viernes (5): 10 AM a 18 PM (6:00)
     if (day >= 1 && day <= 5) {
-        if (hour >= 8 && hour < 17) return false;
+        if (hour >= 10 && hour < 18) return false;
     }
-    // Sábado (6): 8 AM a 2 PM (14:00)
+    // Sábado (6): 10 AM a 18 PM (6:00)
     if (day === 6) {
-        if (hour >= 8 && hour < 14) return false;
+        if (hour >= 10 && hour < 18) return false;
     }
 
     // Si no es ninguna de las anteriores, el bot está activo
@@ -163,7 +163,7 @@ ${buildDestinationsCatalog()}
 
 DESTINOS INTERNACIONALES: Más de 100 ciudades y 300,000 hoteles en todo el mundo (cotización personalizada).
 PET FRIENDLY: ¡Absolutamente! Amamos a las mascotas.
-CANAL HUMANO: WhatsApp +57 300 350 5396.
+CANAL HUMANO: WhatsApp +57 300 408 6028.
     `,
 
     PRE_PROMPT: `ERES LAURA, ASESORA SENIOR DE GM GROUP.
