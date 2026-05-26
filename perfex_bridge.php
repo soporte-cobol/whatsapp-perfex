@@ -116,9 +116,9 @@ switch ($action) {
         $phone = mysqli_real_escape_string($conn, $data['phonenumber'] ?? '');
         $vat = mysqli_real_escape_string($conn, $data['vat'] ?? '');
 
-        // 1. Crear Cliente (Agregamos campos de compatibilidad: default_currency, addedfrom)
-        $sql1 = "INSERT INTO tblclients (company, phonenumber, vat, datecreated, leadid, active, default_language, default_currency, addedfrom) 
-                 VALUES ('$name', '$phone', '$vat', '" . date('Y-m-d H:i:s') . "', 0, 1, 'spanish', 0, 0)";
+        // 1. Crear Cliente - SQL Seguro (Solo campos esenciales garantizados en Perfex)
+        $sql1 = "INSERT INTO tblclients (company, phonenumber, vat, datecreated, active) 
+                 VALUES ('$name', '$phone', '$vat', '" . date('Y-m-d H:i:s') . "', 1)";
 
         if (mysqli_query($conn, $sql1)) {
             $userid = mysqli_insert_id($conn);
@@ -131,7 +131,7 @@ switch ($action) {
             // 2. Crear Contacto Principal
             $sql2 = "INSERT INTO tblcontacts (userid, firstname, lastname, email, phonenumber, is_primary) 
                      VALUES ($userid, '$fname', '$lname', '$email', '$phone', 1)";
-            mysqli_query($conn, $sql2);
+            @mysqli_query($conn, $sql2); // El @ evita que errores de duplicado rompan el JSON
             
             $response = ['status' => 'success', 'customerId' => $userid];
         } else {
@@ -165,5 +165,8 @@ switch ($action) {
         break;
 }
 
-echo json_encode($response, JSON_UNESCAPED_UNICODE);
+// Limpiamos cualquier salida accidental (warnings) antes de enviar el JSON
+if (ob_get_length()) ob_clean();
+
+echo json_encode((object)$response, JSON_UNESCAPED_UNICODE);
 mysqli_close($conn);

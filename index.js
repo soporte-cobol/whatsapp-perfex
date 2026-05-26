@@ -112,7 +112,7 @@ app.post('/ai/plugin', async (req, res) => {
         const isAccountInquiry = accountKeywords.test(msg);
         let customer = { found: false };
 
-        if (session.email || isAccountInquiry) {
+        if (session.email || isAccountInquiry || session.vat) {
             if (session.vat) customer = await perfex.getCustomerByVat(session.vat);
             if (!customer.found && session.email) customer = await perfex.getCustomerByEmail(session.email);
             if (!customer.found && (isAccountInquiry)) customer = await perfex.getCustomerByPhone(cleanFrom);
@@ -142,7 +142,14 @@ app.post('/ai/plugin', async (req, res) => {
                     customer.firstname = clientName;
                     console.log(`✅ Cliente y Contacto Creados. ID: ${customer.customerId} | VAT: ${session.vat || 'N/A'}`);
                 } else {
-                    console.warn("⚠️ El CRM rechazó la creación del cliente:", JSON.stringify(res));
+                    console.warn("⚠️ Fallo en creación directa. Intentando búsqueda de rescate...");
+                    // Búsqueda de último recurso por si el cliente ya existía en el CRM
+                    if (session.vat) customer = await perfex.getCustomerByVat(session.vat);
+                    if (!customer.found && session.email) customer = await perfex.getCustomerByEmail(session.email);
+                    
+                    if (!customer.found) {
+                        console.error("❌ El CRM rechazó la creación del cliente. Respuesta:", JSON.stringify(res));
+                    }
                 }
             } catch (e) {
                 console.error("❌ ERROR AL CREAR CLIENTE:", e.message);
