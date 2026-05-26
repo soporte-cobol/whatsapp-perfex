@@ -60,7 +60,8 @@ app.post('/ai/plugin', async (req, res) => {
         // 1. EXTRACCIÓN INMEDIATA (Previene ReferenceError)
         const payload = req.body?.data || req.body || {};
         const fromRaw = String(payload.phone || payload.wid || payload.from || "");
-        const cleanFrom = fromRaw.split('@')[0].replace(/\D/g, '');
+        const digits = fromRaw.split('@')[0].replace(/\D/g, '');
+        const cleanFrom = digits ? `+${digits}` : "";
         const rawContent = (payload.message || "").trim();
         const msg = rawContent.replace(/Envía:\s*uno\.cobol\.com\.co/gi, "").trim();
 
@@ -80,11 +81,19 @@ app.post('/ai/plugin', async (req, res) => {
         if (!msg || !cleanFrom || fromRaw.includes('@g.us')) return res.json({ status: "success" });
 
         // 4. MEMORIA DE SESIÓN
-        if (!sessions[cleanFrom]) sessions[cleanFrom] = { destination: null, adultos: 1, ninos: 0, bebes: 0, email: null };
+        if (!sessions[cleanFrom]) sessions[cleanFrom] = { destination: null, adultos: 1, ninos: 0, bebes: 0, email: null, vat: null, name: null };
         const session = sessions[cleanFrom];
 
         const emailFound = msg.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
         if (emailFound) session.email = emailFound[0];
+
+        // Detección de NIF/VAT/Documento (7 a 11 dígitos)
+        const vatMatch = msg.match(/\b\d{7,11}\b/);
+        if (vatMatch) session.vat = vatMatch[0];
+
+        // Detección de nombre (si el usuario dice "mi nombre es...")
+        const nameMatch = msg.match(/mi nombre es\s+([a-záéíóúñ\s]+)/i);
+        if (nameMatch) session.name = nameMatch[1].trim();
 
         const destinoDetectado = aiConfig.findDestination(msg);
         if (destinoDetectado) session.destination = destinoDetectado;
@@ -115,10 +124,12 @@ app.post('/ai/plugin', async (req, res) => {
             try {
                 // Formatear nombre: juan.perez -> Juan Perez
                 const nameParts = session.email.split('@')[0].split(/[._-]/);
-                const formattedName = nameParts.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+                let formattedName = nameParts.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+                
+                const clientName = session.name || formattedName;
                 
                 const res = await perfex.createCustomer({
-                    name: formattedName,
+                    name: clientName,
                     email: session.email,
                     phonenumber: cleanFrom,
                     vat: session.vat || ''
@@ -128,7 +139,7 @@ app.post('/ai/plugin', async (req, res) => {
                     customer.customerId = res.customerId;
                     customer.found = true;
                     customer.email = session.email;
-                    customer.firstname = formattedName;
+                    customer.firstname = clientName;
                     console.log(`✅ Cliente y Contacto Creados. ID: ${customer.customerId} | VAT: ${session.vat || 'N/A'}`);
                 }
             } catch (e) {
