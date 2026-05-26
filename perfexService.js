@@ -37,12 +37,12 @@ class PerfexService {
     }
 
     async createCustomer(customerData) {
-        const res = await this.client.post('', { ...customerData, action: 'create_customer' });
+        const res = await this.client.post('', customerData, { params: { action: 'create_customer' } });
         return res.data;
     }
 
     async sendPipingEmail(emailData) {
-        const res = await this.client.post('', { ...emailData, action: 'send_piping_email' });
+        const res = await this.client.post('', emailData, { params: { action: 'send_piping_email' } });
         return res.data;
     }
 

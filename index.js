@@ -14,7 +14,7 @@ const sessions = {};
 
 // Helper para convertir palabras comunes de números a dígitos
 const textToNumber = (text) => {
-    const map = { 'un': 1, 'uno': 1, 'una': 1, 'dos': 2, 'tres': 3, 'cuatro': 4, 'cinco': 5, 'seis': 6, 'siete': 7, 'ocho': 8, 'nueve': 9, 'diez': 10 };
+    const map = { 'un': 1, 'uno': 1, 'una': 1, 'dos': 2, 'tres': 3, 'cuatro': 4, 'cinco': 5, 'seis': 6, 'siete': 7, 'ocho': 8, 'nueve': 9, 'diez': 10, '0':0, '1':1, '2':2, '3':3, '4':4, '5':5, '6':6, '7':7, '8':8, '9':9, '10':10 };
     const match = String(text).toLowerCase().trim();
     if (map[match]) return map[match];
     return parseInt(match) || 1;
@@ -90,8 +90,8 @@ app.post('/ai/plugin', async (req, res) => {
         if (destinoDetectado) session.destination = destinoDetectado;
 
         const numPattern = "(\\d+|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)";
-        const adultosMatch = msg.match(new RegExp(numPattern + '\\s*adultos?', 'i'));
-        const ninosMatch = msg.match(new RegExp(numPattern + '\\s*ni[ñn]os?', 'i'));
+        const adultosMatch = msg.match(new RegExp(numPattern + '(?:\\s*adultos?)?', 'i')); // Hacemos 'adultos' opcional
+        const ninosMatch = msg.match(new RegExp(numPattern + '(?:\\s*ni[ñn]os?)?', 'i')); // Hacemos 'niños' opcional
         if (adultosMatch) session.adultos = textToNumber(adultosMatch[1]);
         if (ninosMatch) session.ninos = textToNumber(ninosMatch[1]);
 
@@ -136,7 +136,7 @@ app.post('/ai/plugin', async (req, res) => {
             const [inv, proj] = await Promise.all([perfex.getInvoices(customer.customerId).catch(()=>[]), perfex.getProjects(customer.customerId).catch(()=>[])]);
             let rigid = `*RESUMEN GM GROUP*\n` + (inv.length ? `📄 Facturas:\n` + inv.map(i => `• ${i.number}: $${i.total}`).join('\n') : `✅ Sin deudas.`);
             await whatsapp.sendText(cleanFrom, rigid);
-            aiResponse = await gemini.generateText(`${aiConfig.PRE_PROMPT}\nCLIENTE: ${customer.firstname || 'Nikolas'}\nCORREO: ${session.email || customer.email}${destinoContext}\nINSTRUCCIÓN: El cliente ya está en el sistema. Si quiere concretar, usa [CREATE_TICKET: 1 | Venta | Detalle]. NO pidas el correo.\nPREGUNTA: "${msg}"\n${aiConfig.POST_PROMPT}`);
+            aiResponse = await gemini.generateText(`${aiConfig.PRE_PROMPT}\nCLIENTE: ${customer.firstname || 'Usuario'}\nCORREO: ${session.email || customer.email}${destinoContext}\nINSTRUCCIÓN: Ya tenemos su contacto. Si quiere reservar/concretar, usa [CREATE_TICKET: 1 | Venta | Resumen]. Sé concisa.\nPREGUNTA: "${msg}"\n${aiConfig.POST_PROMPT}`);
         } else {
             const instr = session.email ? `Ya tienes su correo (${session.email}). Si quiere concretar, usa [CREATE_TICKET: 1 | Venta | Detalle].` : "Pide el correo amablemente.";
             aiResponse = await gemini.generateText(`${aiConfig.PRE_PROMPT}\n${destinoContext}\nINSTRUCCIÓN: ${instr}\nPREGUNTA: "${msg}"\n${aiConfig.POST_PROMPT}`);

@@ -31,9 +31,9 @@ if (trim($received_token) !== trim($secret_key)) {
 $conn = mysqli_connect(APP_DB_HOSTNAME, APP_DB_USERNAME, APP_DB_PASSWORD, APP_DB_NAME);
 mysqli_set_charset($conn, "utf8");
 
-$raw_input = file_get_contents('php://input');
-$data_json = json_decode($raw_input, true) ?: [];
-$action = $_GET['action'] ?? $_POST['action'] ?? ($data_json['action'] ?? '');
+$raw_body = file_get_contents('php://input');
+$data_json = json_decode($raw_body, true) ?: [];
+$action = $_GET['action'] ?? $data_json['action'] ?? $_POST['action'] ?? '';
 $response = [];
 
 switch ($action) {
@@ -86,7 +86,7 @@ switch ($action) {
         break;
 
     case 'create_ticket':
-        $data = is_array($data_json) ? $data_json : $_POST;
+        $data = count($data_json) > 0 ? $data_json : $_POST;
         $subject = mysqli_real_escape_string($conn, $data['subject'] ?? 'Consulta desde WhatsApp');
         $message = mysqli_real_escape_string($conn, $data['message'] ?? '');
         $priority = intval($data['priority'] ?? 2);
@@ -105,14 +105,14 @@ switch ($action) {
 
     case 'create_customer':
         $data = count($data_json) > 0 ? $data_json : $_POST;
-        $name = mysqli_real_escape_string($conn, $data['name'] ?? 'Usuario WA');
+        $name = mysqli_real_escape_string($conn, $data['name'] ?? 'Cliente WhatsApp');
         $email = mysqli_real_escape_string($conn, $data['email'] ?? '');
         $phone = mysqli_real_escape_string($conn, $data['phonenumber'] ?? '');
 
         // 1. Crear Cliente (Company)
-        $sql1 = "INSERT INTO tblclients (company, phonenumber, datecreated, leadid) 
-                 VALUES ('$name', '$phone', '" . date('Y-m-d H:i:s') . "', 0)";
-        
+        $sql1 = "INSERT INTO tblclients (company, phonenumber, datecreated) 
+                 VALUES ('$name', '$phone', '" . date('Y-m-d H:i:s') . "')";
+
         if (mysqli_query($conn, $sql1)) {
             $userid = mysqli_insert_id($conn);
             // 2. Crear Contacto Principal
