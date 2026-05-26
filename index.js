@@ -105,17 +105,18 @@ app.post('/ai/plugin', async (req, res) => {
             if (!customer.found && isAccountInquiry) customer = await perfex.getCustomerByPhone(cleanFrom);
         }
 
-        // 6. REGISTRO DE CLIENTE (Si hay correo y no está identificado)
+        // 6. REGISTRO DE CLIENTE (Prioridad: Asegurar existencia para el Ticket)
         if (session.email && !customer.found) {
-            console.log(`👤 REGISTRANDO CLIENTE NUEVO: ${session.email}`);
+            console.log(`👤 REGISTRANDO CLIENTE EN CRM: ${session.email}`);
             await perfex.createCustomer({
-                name: `Cliente WA ${cleanFrom}`,
+                name: `WhatsApp ${cleanFrom}`,
                 email: session.email,
                 phonenumber: cleanFrom
-            }).then(r => { 
-                if(r.customerId) {
-                    customer.customerId = r.customerId;
-                    customer.found = true; // Actualizamos el estado inmediatamente
+            }).then(res => { 
+                if(res.status === 'success' || res.customerId) {
+                    console.log(`✅ Cliente Creado con ID: ${res.customerId}`);
+                    customer.customerId = res.customerId;
+                    customer.found = true; // Marcamos como encontrado para que la IA lo sepa
                 }
             })
               .catch(e => console.error("❌ CLIENT FAIL:", e.message));
@@ -136,7 +137,7 @@ app.post('/ai/plugin', async (req, res) => {
             const [inv, proj] = await Promise.all([perfex.getInvoices(customer.customerId).catch(()=>[]), perfex.getProjects(customer.customerId).catch(()=>[])]);
             let rigid = `*RESUMEN GM GROUP*\n` + (inv.length ? `📄 Facturas:\n` + inv.map(i => `• ${i.number}: $${i.total}`).join('\n') : `✅ Sin deudas.`);
             await whatsapp.sendText(cleanFrom, rigid);
-            aiResponse = await gemini.generateText(`${aiConfig.PRE_PROMPT}\nCLIENTE: ${customer.firstname || 'Usuario'}\nCORREO: ${session.email || customer.email}${destinoContext}\nINSTRUCCIÓN: Ya tenemos su contacto. Si quiere reservar/concretar, usa [CREATE_TICKET: 1 | Venta | Resumen]. Sé concisa.\nPREGUNTA: "${msg}"\n${aiConfig.POST_PROMPT}`);
+            aiResponse = await gemini.generateText(`${aiConfig.PRE_PROMPT}\nCLIENTE IDENTIFICADO: ${customer.firstname || 'Usuario'}\nCORREO: ${session.email || customer.email}${destinoContext}\nINSTRUCCIÓN: Ya identificamos al cliente. Si quiere reservar o concretar, usa [CREATE_TICKET: 1 | Venta | Resumen]. NO vuelvas a pedir el correo bajo ninguna circunstancia.\nPREGUNTA: "${msg}"\n${aiConfig.POST_PROMPT}`);
         } else {
             const instr = session.email ? `Ya tienes su correo (${session.email}). Si quiere concretar, usa [CREATE_TICKET: 1 | Venta | Detalle].` : "Pide el correo amablemente.";
             aiResponse = await gemini.generateText(`${aiConfig.PRE_PROMPT}\n${destinoContext}\nINSTRUCCIÓN: ${instr}\nPREGUNTA: "${msg}"\n${aiConfig.POST_PROMPT}`);
