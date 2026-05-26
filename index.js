@@ -100,7 +100,7 @@ app.post('/ai/plugin', async (req, res) => {
 
         // Expresión regular más estricta: Busca números pequeños (1-2 dígitos) o palabras de números
         // vinculados obligatoriamente a la palabra "adultos" o "niños" si el número es ambiguo.
-        const paxNum = "(\\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)";
+        const paxNum = "(\\b\\d{1,2}\\b|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)";
         const adultosMatch = msg.match(new RegExp(paxNum + '\\s*adultos?', 'i'));
         const ninosMatch = msg.match(new RegExp(paxNum + '\\s*ni[ñn]os?', 'i'));
         
@@ -141,6 +141,8 @@ app.post('/ai/plugin', async (req, res) => {
                     customer.email = session.email;
                     customer.firstname = clientName;
                     console.log(`✅ Cliente y Contacto Creados. ID: ${customer.customerId} | VAT: ${session.vat || 'N/A'}`);
+                } else {
+                    console.warn("⚠️ El CRM rechazó la creación del cliente:", JSON.stringify(res));
                 }
             } catch (e) {
                 console.error("❌ ERROR AL CREAR CLIENTE:", e.message);
@@ -168,7 +170,7 @@ app.post('/ai/plugin', async (req, res) => {
             aiResponse = await gemini.generateText(`${aiConfig.PRE_PROMPT}\n${destinoContext}\nINSTRUCCIÓN: ${instr}\nPREGUNTA: "${msg}"\n${aiConfig.POST_PROMPT}`);
         }
 
-        // 9. PROCESAMIENTO TICKET (Simulación de Envío de Correo)
+        // 9. PROCESAMIENTO TICKET (Garantizamos vinculación al Cliente recién creado)
         if (aiResponse) {
             const ticketMatch = aiResponse.match(/\[CREATE_TICKET:\s*(\d+)\s*\|\s*([^|]+)\s*\|\s*([^\]]+)\]/i);
             if (ticketMatch) {
@@ -178,7 +180,17 @@ app.post('/ai/plugin', async (req, res) => {
                 const fromEmail = session.email || customer.email;
                 const deptEmail = aiConfig.DEPT_EMAILS[deptId] || aiConfig.DEPT_EMAILS[1];
 
-                if (fromEmail) {
+                if (customer.customerId) {
+                    console.log(`🎫 Creando Ticket DIRECTO para Cliente ID: ${customer.customerId}`);
+                    await perfex.createTicket({
+                        customerId: customer.customerId,
+                        subject: subject,
+                        message: message,
+                        department: deptId,
+                        priority: 2
+                    }).then(r => console.log(`✅ Ticket DB Creado:`, JSON.stringify(r)))
+                      .catch(e => console.error(`❌ Error Ticket DB:`, e.message));
+                } else if (fromEmail) {
                     console.log(`📧 Simulando correo desde ${fromEmail} hacia ${deptEmail}...`);
                     await perfex.sendPipingEmail({
                         to: deptEmail,

@@ -111,18 +111,25 @@ switch ($action) {
         $vat = mysqli_real_escape_string($conn, $data['vat'] ?? '');
 
         // 1. Crear Cliente (Company)
-        $sql1 = "INSERT INTO tblclients (company, phonenumber, vat, datecreated, leadid) 
-                 VALUES ('$name', '$phone', '$vat', '" . date('Y-m-d H:i:s') . "', 0)";
+        $sql1 = "INSERT INTO tblclients (company, phonenumber, vat, datecreated, leadid, active, default_language) 
+                 VALUES ('$name', '$phone', '$vat', '" . date('Y-m-d H:i:s') . "', 0, 1, 'spanish')";
 
         if (mysqli_query($conn, $sql1)) {
             $userid = mysqli_insert_id($conn);
+            
+            // Separar nombre y apellido para el contacto
+            $parts = explode(' ', trim($name));
+            $fname = mysqli_real_escape_string($conn, $parts[0]);
+            $lname = mysqli_real_escape_string($conn, count($parts) > 1 ? implode(' ', array_slice($parts, 1)) : '');
+
             // 2. Crear Contacto Principal
             $sql2 = "INSERT INTO tblcontacts (userid, firstname, lastname, email, phonenumber, is_primary) 
-                     VALUES ($userid, '$name', '', '$email', '$phone', 1)";
+                     VALUES ($userid, '$fname', '$lname', '$email', '$phone', 1)";
             mysqli_query($conn, $sql2);
+            
             $response = ['status' => 'success', 'customerId' => $userid];
         } else {
-            $response = ['status' => 'error', 'message' => mysqli_error($conn)];
+            $response = ['status' => 'error', 'message' => mysqli_error($conn), 'sql' => $sql1];
         }
         break;
 
