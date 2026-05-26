@@ -12,37 +12,41 @@ class PerfexService {
     }
 
     async getCustomerByPhone(phone) {
-        const res = await this.client.get('', { params: { action: 'get_customer_by_phone', phone } });
+        const res = await this.client.get('', { params: { token: this.apiToken, action: 'get_customer_by_phone', phone } });
         return res.data;
     }
 
     async getCustomerByEmail(email) {
-        const res = await this.client.get('', { params: { action: 'get_customer_by_email', email } });
+        const res = await this.client.get('', { params: { token: this.apiToken, action: 'get_customer_by_email', email } });
         return res.data;
     }
 
     async getCustomerByVat(vat) {
-        const res = await this.client.get('', { params: { action: 'get_customer_by_vat', vat } });
+        const res = await this.client.get('', { params: { token: this.apiToken, action: 'get_customer_by_vat', vat } });
         return res.data;
     }
 
     async getInvoices(customerId, limit = 5) {
-        const res = await this.client.get('', { params: { action: 'get_invoices', customer_id: customerId, limit } });
+        const res = await this.client.get('', { params: { token: this.apiToken, action: 'get_invoices', customer_id: customerId, limit } });
         return Array.isArray(res.data) ? res.data : [];
     }
 
     async getProjects(customerId, limit = 3) {
-        const res = await this.client.get('', { params: { action: 'get_projects', customer_id: customerId, limit } });
+        const res = await this.client.get('', { params: { token: this.apiToken, action: 'get_projects', customer_id: customerId, limit } });
         return Array.isArray(res.data) ? res.data : [];
     }
 
     async createCustomer(customerData) {
-        const res = await this.client.post('', customerData, { params: { action: 'create_customer' } });
+        const res = await this.client.post('', customerData, { 
+            params: { token: this.apiToken, action: 'create_customer' } 
+        });
         return res.data;
     }
 
     async sendPipingEmail(emailData) {
-        const res = await this.client.post('', emailData, { params: { action: 'send_piping_email' } });
+        const res = await this.client.post('', emailData, { 
+            params: { token: this.apiToken, action: 'send_piping_email' } 
+        });
         return res.data;
     }
 

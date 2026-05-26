@@ -29,6 +29,10 @@ if (trim($received_token) !== trim($secret_key)) {
 }
 
 $conn = mysqli_connect(APP_DB_HOSTNAME, APP_DB_USERNAME, APP_DB_PASSWORD, APP_DB_NAME);
+if (!$conn) {
+    die(json_encode(['error' => 'Error de conexión DB', 'detail' => mysqli_connect_error()]));
+}
+
 mysqli_set_charset($conn, "utf8");
 
 $raw_body = file_get_contents('php://input');
@@ -69,6 +73,7 @@ switch ($action) {
         break;
 
     case 'get_invoices':
+        $response = [];
         $cid = intval($_GET['customer_id']);
         $sql = "SELECT id, number, total, status, hash FROM tblinvoices WHERE clientid = $cid AND status != 2 ORDER BY date DESC LIMIT 5";
         $res = mysqli_query($conn, $sql);
@@ -79,6 +84,7 @@ switch ($action) {
         break;
 
     case 'get_projects':
+        $response = [];
         $cid = intval($_GET['customer_id']);
         $sql = "SELECT name as travel_plan FROM tblprojects WHERE clientid = $cid LIMIT 3";
         $res = mysqli_query($conn, $sql);
@@ -110,9 +116,9 @@ switch ($action) {
         $phone = mysqli_real_escape_string($conn, $data['phonenumber'] ?? '');
         $vat = mysqli_real_escape_string($conn, $data['vat'] ?? '');
 
-        // 1. Crear Cliente (Company)
-        $sql1 = "INSERT INTO tblclients (company, phonenumber, vat, datecreated, leadid, active, default_language) 
-                 VALUES ('$name', '$phone', '$vat', '" . date('Y-m-d H:i:s') . "', 0, 1, 'spanish')";
+        // 1. Crear Cliente (Agregamos campos de compatibilidad: default_currency, addedfrom)
+        $sql1 = "INSERT INTO tblclients (company, phonenumber, vat, datecreated, leadid, active, default_language, default_currency, addedfrom) 
+                 VALUES ('$name', '$phone', '$vat', '" . date('Y-m-d H:i:s') . "', 0, 1, 'spanish', 0, 0)";
 
         if (mysqli_query($conn, $sql1)) {
             $userid = mysqli_insert_id($conn);
