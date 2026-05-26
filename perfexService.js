@@ -36,6 +36,11 @@ class PerfexService {
         return Array.isArray(res.data) ? res.data : [];
     }
 
+    async createLead(leadData) {
+        const res = await this.client.post('', { ...leadData, action: 'create_lead' });
+        return res.data;
+    }
+
     async createTicket(ticketData) {
         const res = await this.client.post('', { 
             ...ticketData,

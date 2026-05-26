@@ -88,13 +88,31 @@ switch ($action) {
         $subject = mysqli_real_escape_string($conn, $data['subject'] ?? 'Consulta desde WhatsApp');
         $message = mysqli_real_escape_string($conn, $data['message'] ?? '');
         $priority = intval($data['priority'] ?? 2);
+        $department = intval($data['department'] ?? 1);
         $userid = intval($data['customerId'] ?? 0);
         
-        $sql = "INSERT INTO tbltickets (subject, message, priority, userid, date, status) 
-                VALUES ('$subject', '$message', $priority, $userid, '" . date('Y-m-d H:i:s') . "', 1)";
+        $sql = "INSERT INTO tbltickets (subject, message, priority, department, userid, date, status) 
+                VALUES ('$subject', '$message', $priority, $department, $userid, '" . date('Y-m-d H:i:s') . "', 1)";
         
         if (mysqli_query($conn, $sql)) {
             $response = ['status' => 'success', 'ticket_id' => mysqli_insert_id($conn)];
+        } else {
+            $response = ['status' => 'error', 'message' => mysqli_error($conn)];
+        }
+        break;
+
+    case 'create_lead':
+        $data = json_decode(file_get_contents('php://input'), true);
+        $name = mysqli_real_escape_string($conn, $data['name'] ?? 'Cliente WhatsApp');
+        $email = mysqli_real_escape_string($conn, $data['email'] ?? '');
+        $phonenumber = mysqli_real_escape_string($conn, $data['phonenumber'] ?? '');
+        $description = mysqli_real_escape_string($conn, $data['description'] ?? 'Interés desde WhatsApp AI');
+        
+        $sql = "INSERT INTO tblleads (name, email, phonenumber, description, source, status, dateadded) 
+                VALUES ('$name', '$email', '$phonenumber', '$description', 1, 1, '" . date('Y-m-d H:i:s') . "')";
+        
+        if (mysqli_query($conn, $sql)) {
+            $response = ['status' => 'success', 'lead_id' => mysqli_insert_id($conn)];
         } else {
             $response = ['status' => 'error', 'message' => mysqli_error($conn)];
         }

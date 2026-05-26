@@ -9,6 +9,9 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Memoria temporal de la sesión (se limpia al reiniciar el servidor)
+const sessions = {};
+
 // Middleware para capturar errores de JSON mal formado antes de llegar a la ruta
 app.use((err, req, res, next) => {
     if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
@@ -53,6 +56,18 @@ app.post('/ai/plugin', async (req, res) => {
             return res.json({ status: "success", message: "Bot inactive during business hours", stop: true });
         }
 
+        // --- EXTRACCIÓN PREVENTIVA DE DATOS ---
+        const emailFound = msg.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+        const nitMatch = msg.match(/\d{7,}/);
+        const destinoDetectado = aiConfig.findDestination(msg);
+        
+        // Inicializar o recuperar sesión del usuario
+        if (!sessions[cleanFrom]) {
+            sessions[cleanFrom] = { destination: null, adultos: 1, ninos: 0, bebes: 0 };
+        }
+        const session = sessions[cleanFrom];
+        if (destinoDetectado) session.destination = destinoDetectado;
+
         // 1. LOG INMEDIATO: Ver exactamente qué llega al servidor
         console.log(`\n📥 WEBHOOK RECIBIDO - ${new Date().toISOString()}`);
         console.log(`📦 CUERPO (BODY):`, req.body ? JSON.stringify(req.body) : 'VACÍO');
@@ -64,12 +79,7 @@ app.post('/ai/plugin', async (req, res) => {
         const rawMsg = (data.message || "").trim();
         // Eliminar la firma del plan gratuito de la API para que no ensucie el procesamiento
         const msg = rawMsg.replace(/Envía:\s*uno\.cobol\.com\.co/gi, "").trim();
-
-        // Intentar capturar el teléfono de múltiples fuentes posibles
-        const from = String(
-            data.phone || data.wid || data.from || data.sender || 
-            req.body?.phone || req.body?.sender || ""
-        );
+        const from = String(data.phone || data.wid || data.from || "");
 
         const secret = cleanString(req.body?.secret || req.body?.token || req.headers['x-api-key']);
         const configSecret = cleanString(process.env.WEBHOOK_API_KEY);
@@ -104,26 +114,20 @@ app.post('/ai/plugin', async (req, res) => {
         console.log(`📩 PROCESADO (Sin firma): "${msg}" | TEL: ${cleanFrom}`);
 
         let isAccountInquiry = false;
-        
-        // 1. BUSCAR POR EMAIL SI EXISTE EN EL MENSAJE
-        const emailMatch = msg.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-        
-        // 2. BUSCAR POR NIT SI EXISTE
-        const nitMatch = msg.match(/\d{7,}/);
 
         // Keywords that strongly indicate the user wants to check their account/invoices
         const accountKeywords = /factura|saldo|deuda|estado de cuenta|mis viajes|mi cuenta|resumen|pago/i;
 
-        if (emailMatch || nitMatch || accountKeywords.test(msg)) {
+        if (emailFound || nitMatch || accountKeywords.test(msg)) {
             isAccountInquiry = true;
         }
 
         let customer = { found: false };
 
         if (isAccountInquiry) {
-            if (emailMatch) {
-                console.log(`🔍 Intentando por EMAIL: ${emailMatch[0]}`);
-                customer = await perfex.getCustomerByEmail(emailMatch[0]);
+            if (emailFound) {
+                console.log(`🔍 Intentando por EMAIL: ${emailFound[0]}`);
+                customer = await perfex.getCustomerByEmail(emailFound[0]);
                 console.log(`📡 Respuesta Bridge (Email):`, JSON.stringify(customer));
             }
             if (!customer.found && nitMatch) {
@@ -162,49 +166,69 @@ app.post('/ai/plugin', async (req, res) => {
             
             await whatsapp.sendText(cleanFrom, rigidMsg);
             if (aiMsg) {
+                // --- PROCESAMIENTO DE TICKET ---
+                const ticketRegex = /\[CREATE_TICKET:\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\]/i;
+                const ticketMatch = aiMsg.match(ticketRegex);
+                if (ticketMatch) {
+                    const [_, deptId, subject, message] = ticketMatch;
+                    await perfex.createTicket({
+                        customerId: customer.customerId,
+                        subject: subject.trim(),
+                        message: `${message.trim()}\n\n---\nTel: ${cleanFrom}\nEmail: ${customer.email || 'Identificado por CRM'}`,
+                        department: parseInt(deptId) || 1,
+                        priority: 2
+                    }).then(r => console.log(`✅ Ticket creado:`, r)).catch(e => console.error(`❌ Error Ticket:`, e.message));
+                }
+                // -------------------------------
                 const finalAi = aiMsg.replace(/\[CREATE_TICKET:.*?\]/g, '').trim();
                 await whatsapp.sendText(cleanFrom, finalAi);
             }
 
-        } else if (isAccountInquiry && (emailMatch || nitMatch || accountKeywords.test(msg))) {
+        } else if (isAccountInquiry && (emailFound || nitMatch || accountKeywords.test(msg))) {
             console.log(`⚠️ FALLÓ IDENTIFICACIÓN TRAS INTENTO EXPLÍCITO`);
             const aiFallback = await gemini.generateText(`Eres Laura de GM Group. El cliente intentó consultar información de su cuenta o facturas, pero NO lo encontramos en el sistema. Pídele amablemente que te confirme su correo electrónico o NIT para buscarlo bien. Mensaje del cliente: "${msg}"`);
             await whatsapp.sendText(cleanFrom, aiFallback || aiConfig.FALLBACK_PROMPT);
         } else {
             console.log(`🤖 RESPUESTA GENERATIVA (Sin forzar identificación)`);
 
-            // Detectar destino específico del catálogo en el mensaje
-            const destinoDetectado = aiConfig.findDestination(msg);
+            // Registro de Lead si proporciona correo y no existe
+            if (emailFound && !customer.found) {
+                console.log(`👤 Creando cliente potencial (Lead): ${emailFound[0]}`);
+                await perfex.createLead({
+                    name: `Cliente WhatsApp ${cleanFrom}`,
+                    email: emailFound[0],
+                    phonenumber: cleanFrom,
+                    description: `Interesado en viajar. Destino actual: ${session.destination ? session.destination.nombre : 'Por definir'}`
+                }).catch(e => console.error("❌ Error Lead:", e.message));
+            }
 
             // Extraer número de personas del mensaje
-            let adultos = 1, ninos = 0, bebes = 0;
             const somosMatch   = msg.match(/somos\s+(\d+)/i);
             const adultosMatch = msg.match(/(\d+)\s*adultos?/i);
             const ninosMatch   = msg.match(/(\d+)\s*ni[ñn]os?/i);
             const bebesMatch   = msg.match(/(\d+)\s*beb[eé]s?/i);
-            if (adultosMatch) adultos = parseInt(adultosMatch[1]);
-            else if (somosMatch) adultos = parseInt(somosMatch[1]);
-            if (ninosMatch) ninos = parseInt(ninosMatch[1]);
-            if (bebesMatch) bebes = parseInt(bebesMatch[1]);
+            
+            if (adultosMatch) session.adultos = parseInt(adultosMatch[1]);
+            else if (somosMatch) session.adultos = parseInt(somosMatch[1]);
+            if (ninosMatch) session.ninos = parseInt(ninosMatch[1]);
+            if (bebesMatch) session.bebes = parseInt(bebesMatch[1]);
 
             let destinoContext = '';
-            if (destinoDetectado) {
-                const precio = aiConfig.calcularPrecio(destinoDetectado, adultos, ninos, bebes);
+            if (session.destination) {
+                const precio = aiConfig.calcularPrecio(session.destination, session.adultos, session.ninos, session.bebes);
                 const fmt = (n) => `$${n.toLocaleString('es-CO')} COP`;
-                console.log(`💰 Destino: ${destinoDetectado.nombre} | Adultos: ${adultos} | Niños: ${ninos} | Bebés: ${bebes}`);
-                destinoContext = `\nDESTINO SOLICITADO: ${destinoDetectado.nombre}
-DURACION: ${destinoDetectado.duracion_dias} dias / ${destinoDetectado.duracion_noches} noches
-INCLUYE: ${destinoDetectado.incluye}
-DESCRIPCION: ${destinoDetectado.descripcion}
+                console.log(`💰 [MEMORIA] Destino: ${session.destination.nombre} | PAX: ${session.adultos}A, ${session.ninos}N, ${session.bebes}B`);
+                destinoContext = `\nDESTINO ACTUAL EN CONVERSACIÓN: ${session.destination.nombre}
+DURACION: ${session.destination.duracion_dias} dias / ${session.destination.duracion_noches} noches
+INCLUYE: ${session.destination.incluye}
 CALCULO DE PRECIOS:
-  - Adultos: ${adultos} x ${fmt(destinoDetectado.precio_adulto)} = ${fmt(precio.totalAdultos)}
-  - Ninos (3-11 anos): ${ninos} x ${fmt(destinoDetectado.precio_nino)} = ${fmt(precio.totalNinos)}
-  - Bebes (0-2 anos): ${bebes} GRATIS
+  - Adultos: ${session.adultos} x ${fmt(session.destination.precio_adulto)}
+  - Ninos: ${session.ninos} x ${fmt(session.destination.precio_nino)}
   - TOTAL ESTIMADO: ${fmt(precio.total)}
 INSTRUCCION ESPECIAL: Presenta este calculo de forma calida. Menciona que incluye y anima a reservar. NO inventes precios.`;
             }
 
-            const instruccion = destinoDetectado
+            const instruccion = session.destination
                 ? 'Presenta el calculo de precios de forma natural y entusiasta.'
                 : 'NO le pidas correo ni NIT a menos que quiera reservar o consultar facturas.';
 
@@ -214,6 +238,20 @@ INSTRUCCION ESPECIAL: Presenta este calculo de forma calida. Menciona que incluy
             console.log(`🤖 [IA FULL RESPONSE]:\n${aiMsg}\n-------------------------`);
 
             if (aiMsg) {
+                // --- PROCESAMIENTO DE TICKET ---
+                const ticketRegex = /\[CREATE_TICKET:\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\]/i;
+                const ticketMatch = aiMsg.match(ticketRegex);
+                if (ticketMatch) {
+                    const [_, deptId, subject, message] = ticketMatch;
+                    await perfex.createTicket({
+                        customerId: 0, // No identificado aún
+                        subject: subject.trim(),
+                        message: `${message.trim()}\n\n---\nTel: ${cleanFrom}\nEmail: ${emailFound ? emailFound[0] : 'No proporcionado'}`,
+                        department: parseInt(deptId) || 1,
+                        priority: 2
+                    }).then(r => console.log(`✅ Ticket creado (Anónimo):`, r)).catch(e => console.error(`❌ Error Ticket:`, e.message));
+                }
+                // -------------------------------
                 const finalAi = aiMsg.replace(/\[CREATE_TICKET:.*?\]/g, '').trim();
                 await whatsapp.sendText(cleanFrom, finalAi);
             } else {
