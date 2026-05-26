@@ -56,18 +56,6 @@ app.post('/ai/plugin', async (req, res) => {
             return res.json({ status: "success", message: "Bot inactive during business hours", stop: true });
         }
 
-        // --- EXTRACCIÓN PREVENTIVA DE DATOS ---
-        const emailFound = msg.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-        const nitMatch = msg.match(/\d{7,}/);
-        const destinoDetectado = aiConfig.findDestination(msg);
-        
-        // Inicializar o recuperar sesión del usuario
-        if (!sessions[cleanFrom]) {
-            sessions[cleanFrom] = { destination: null, adultos: 1, ninos: 0, bebes: 0 };
-        }
-        const session = sessions[cleanFrom];
-        if (destinoDetectado) session.destination = destinoDetectado;
-
         // 1. LOG INMEDIATO: Ver exactamente qué llega al servidor
         console.log(`\n📥 WEBHOOK RECIBIDO - ${new Date().toISOString()}`);
         console.log(`📦 CUERPO (BODY):`, req.body ? JSON.stringify(req.body) : 'VACÍO');
@@ -80,6 +68,19 @@ app.post('/ai/plugin', async (req, res) => {
         // Eliminar la firma del plan gratuito de la API para que no ensucie el procesamiento
         const msg = rawMsg.replace(/Envía:\s*uno\.cobol\.com\.co/gi, "").trim();
         const from = String(data.phone || data.wid || data.from || "");
+        const cleanFrom = from.split('@')[0].replace(/\D/g, '');
+
+        // --- EXTRACCIÓN PREVENTIVA DE DATOS (Ahora que msg y cleanFrom existen) ---
+        const emailFound = msg.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+        const nitMatch = msg.match(/\d{7,}/);
+        const destinoDetectado = aiConfig.findDestination(msg);
+        
+        // Inicializar o recuperar sesión del usuario
+        if (!sessions[cleanFrom]) {
+            sessions[cleanFrom] = { destination: null, adultos: 1, ninos: 0, bebes: 0 };
+        }
+        const session = sessions[cleanFrom];
+        if (destinoDetectado) session.destination = destinoDetectado;
 
         const secret = cleanString(req.body?.secret || req.body?.token || req.headers['x-api-key']);
         const configSecret = cleanString(process.env.WEBHOOK_API_KEY);
@@ -91,7 +92,6 @@ app.post('/ai/plugin', async (req, res) => {
 
         if (!msg) { console.log("ℹ️ Mensaje vacío, ignorando."); return res.json({ status: "success", stop: true }); }
 
-        const cleanFrom = from.split('@')[0].replace(/\D/g, '');
         if (!cleanFrom) {
             console.warn("⚠️ No se pudo extraer un número de teléfono. Revisa el formato del JSON arriba.");
             return res.json({ status: "success", stop: true });
@@ -191,17 +191,6 @@ app.post('/ai/plugin', async (req, res) => {
         } else {
             console.log(`🤖 RESPUESTA GENERATIVA (Sin forzar identificación)`);
 
-            // Registro de Lead si proporciona correo y no existe
-            if (emailFound && !customer.found) {
-                console.log(`👤 Creando cliente potencial (Lead): ${emailFound[0]}`);
-                await perfex.createLead({
-                    name: `Cliente WhatsApp ${cleanFrom}`,
-                    email: emailFound[0],
-                    phonenumber: cleanFrom,
-                    description: `Interesado en viajar. Destino actual: ${session.destination ? session.destination.nombre : 'Por definir'}`
-                }).catch(e => console.error("❌ Error Lead:", e.message));
-            }
-
             // Extraer número de personas del mensaje
             const somosMatch   = msg.match(/somos\s+(\d+)/i);
             const adultosMatch = msg.match(/(\d+)\s*adultos?/i);
@@ -212,6 +201,17 @@ app.post('/ai/plugin', async (req, res) => {
             else if (somosMatch) session.adultos = parseInt(somosMatch[1]);
             if (ninosMatch) session.ninos = parseInt(ninosMatch[1]);
             if (bebesMatch) session.bebes = parseInt(bebesMatch[1]);
+
+            // Registro de Lead si proporciona correo y no existe
+            if (emailFound && !customer.found) {
+                console.log(`👤 Creando cliente potencial (Lead): ${emailFound[0]}`);
+                await perfex.createLead({
+                    name: `Cliente WhatsApp ${cleanFrom}`,
+                    email: emailFound[0],
+                    phonenumber: cleanFrom,
+                    description: `Interesado en viajar. Destino actual: ${session.destination ? session.destination.nombre : 'Por definir'}. PAX: ${session.adultos}A, ${session.ninos}N.`
+                }).catch(e => console.error("❌ Error Lead:", e.message));
+            }
 
             let destinoContext = '';
             if (session.destination) {
