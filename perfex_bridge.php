@@ -132,8 +132,8 @@ switch ($action) {
             $lname = mysqli_real_escape_string($conn, count($parts) > 1 ? implode(' ', array_slice($parts, 1)) : '');
 
             // 2. Crear Contacto Principal
-            $sql2 = "INSERT INTO tblcontacts (userid, firstname, lastname, email, phonenumber, is_primary) 
-                     VALUES ($userid, '$fname', '$lname', '$email', '$phone', 1)";
+            $sql2 = "INSERT INTO tblcontacts (userid, firstname, lastname, email, phonenumber, is_primary, datecreated) 
+                     VALUES ($userid, '$fname', '$lname', '$email', '$phone', 1, '" . date('Y-m-d H:i:s') . "')";
             @mysqli_query($conn, $sql2); // El @ evita que errores de duplicado rompan el JSON
             
             $response->status = 'success';
