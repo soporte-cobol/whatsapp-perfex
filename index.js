@@ -12,7 +12,7 @@ app.use(express.urlencoded({ extended: true }));
 // Memoria temporal de la sesión (se limpia al reiniciar el servidor)
 const sessions = {};
 
-// Helper para convertir palabras comunes de números a dígitos
+// Helper para convertir palabras comunes a números
 const textToNumber = (text) => {
     const map = { 'un': 1, 'uno': 1, 'una': 1, 'dos': 2, 'tres': 3, 'cuatro': 4, 'cinco': 5, 'seis': 6, 'siete': 7, 'ocho': 8, 'nueve': 9, 'diez': 10, '0':0, '1':1, '2':2, '3':3, '4':4, '5':5, '6':6, '7':7, '8':8, '9':9, '10':10 };
     const match = String(text).toLowerCase().trim();
@@ -89,9 +89,12 @@ app.post('/ai/plugin', async (req, res) => {
         const destinoDetectado = aiConfig.findDestination(msg);
         if (destinoDetectado) session.destination = destinoDetectado;
 
-        const numPattern = "(\\d+|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)";
-        const adultosMatch = msg.match(new RegExp(numPattern + '(?:\\s*adultos?)?', 'i')); // Hacemos 'adultos' opcional
-        const ninosMatch = msg.match(new RegExp(numPattern + '(?:\\s*ni[ñn]os?)?', 'i')); // Hacemos 'niños' opcional
+        // Expresión regular más estricta: Busca números pequeños (1-2 dígitos) o palabras de números
+        // vinculados obligatoriamente a la palabra "adultos" o "niños" si el número es ambiguo.
+        const paxNum = "(\\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)";
+        const adultosMatch = msg.match(new RegExp(paxNum + '\\s*adultos?', 'i'));
+        const ninosMatch = msg.match(new RegExp(paxNum + '\\s*ni[ñn]os?', 'i'));
+        
         if (adultosMatch) session.adultos = textToNumber(adultosMatch[1]);
         if (ninosMatch) session.ninos = textToNumber(ninosMatch[1]);
 
@@ -101,25 +104,36 @@ app.post('/ai/plugin', async (req, res) => {
         let customer = { found: false };
 
         if (session.email || isAccountInquiry) {
-            if (session.email) customer = await perfex.getCustomerByEmail(session.email);
-            if (!customer.found && isAccountInquiry) customer = await perfex.getCustomerByPhone(cleanFrom);
+            if (session.vat) customer = await perfex.getCustomerByVat(session.vat);
+            if (!customer.found && session.email) customer = await perfex.getCustomerByEmail(session.email);
+            if (!customer.found && (isAccountInquiry)) customer = await perfex.getCustomerByPhone(cleanFrom);
         }
 
-        // 6. REGISTRO DE CLIENTE (Prioridad: Asegurar existencia para el Ticket)
+        // 6. REGISTRO DE CLIENTE (Aseguramos ID, Nombre, Correo y Teléfono)
         if (session.email && !customer.found) {
             console.log(`👤 REGISTRANDO CLIENTE EN CRM: ${session.email}`);
-            await perfex.createCustomer({
-                name: `WhatsApp ${cleanFrom}`,
-                email: session.email,
-                phonenumber: cleanFrom
-            }).then(res => { 
-                if(res.status === 'success' || res.customerId) {
-                    console.log(`✅ Cliente Creado con ID: ${res.customerId}`);
+            try {
+                // Formatear nombre: juan.perez -> Juan Perez
+                const nameParts = session.email.split('@')[0].split(/[._-]/);
+                const formattedName = nameParts.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+                
+                const res = await perfex.createCustomer({
+                    name: formattedName,
+                    email: session.email,
+                    phonenumber: cleanFrom,
+                    vat: session.vat || ''
+                });
+                
+                if (res && (res.status === 'success' || res.customerId)) {
                     customer.customerId = res.customerId;
-                    customer.found = true; // Marcamos como encontrado para que la IA lo sepa
+                    customer.found = true;
+                    customer.email = session.email;
+                    customer.firstname = formattedName;
+                    console.log(`✅ Cliente y Contacto Creados. ID: ${customer.customerId} | VAT: ${session.vat || 'N/A'}`);
                 }
-            })
-              .catch(e => console.error("❌ CLIENT FAIL:", e.message));
+            } catch (e) {
+                console.error("❌ ERROR AL CREAR CLIENTE:", e.message);
+            }
         }
 
         // 7. CONTEXTO IA
@@ -143,24 +157,27 @@ app.post('/ai/plugin', async (req, res) => {
             aiResponse = await gemini.generateText(`${aiConfig.PRE_PROMPT}\n${destinoContext}\nINSTRUCCIÓN: ${instr}\nPREGUNTA: "${msg}"\n${aiConfig.POST_PROMPT}`);
         }
 
-        // 9. PROCESAMIENTO TICKET (VIA EMAIL PIPING)
+        // 9. PROCESAMIENTO TICKET (Simulación de Envío de Correo)
         if (aiResponse) {
             const ticketMatch = aiResponse.match(/\[CREATE_TICKET:\s*(\d+)\s*\|\s*([^|]+)\s*\|\s*([^\]]+)\]/i);
             if (ticketMatch) {
                 const deptId = parseInt(ticketMatch[1]);
+                const subject = ticketMatch[2].trim();
+                const message = ticketMatch[3].trim();
+                const fromEmail = session.email || customer.email;
                 const deptEmail = aiConfig.DEPT_EMAILS[deptId] || aiConfig.DEPT_EMAILS[1];
-                const userEmail = session.email || customer.email;
 
-                if (userEmail) {
+                if (fromEmail) {
+                    console.log(`📧 Simulando correo desde ${fromEmail} hacia ${deptEmail}...`);
                     await perfex.sendPipingEmail({
                         to: deptEmail,
-                        from_email: userEmail,
-                        subject: ticketMatch[2].trim(),
-                        body: `DATOS DE CONTACTO\n-----------------\nWhatsApp: ${cleanFrom}\nEmail: ${userEmail}\n\nSOLICITUD:\n----------\n${ticketMatch[3].trim()}\n\n---\nGenerado por Laura AI`
-                    }).then(r => console.log(`✅ Email enviado al Piping [${deptEmail}]:`, JSON.stringify(r)))
-                      .catch(e => console.error(`❌ Error Piping:`, e.message));
+                        from_email: fromEmail,
+                        subject: subject,
+                        body: `SOLICITUD WHATSAPP\n-----------------\nWhatsApp: ${cleanFrom}\nNIF/VAT: ${session.vat || 'No provisto'}\n\nDetalle:\n${message}\n\n---\nLaura AI`
+                    }).then(() => console.log(`✅ Ticket enviado al Piping correctamente.`))
+                      .catch(e => console.error(`❌ Error en Simulación Piping:`, e.message));
                 } else {
-                    console.warn("⚠️ No se pudo enviar el ticket: Falta correo del usuario.");
+                    console.warn("⚠️ No se pudo simular el correo: Falta el email del cliente.");
                 }
             }
             // Enviar respuesta sin los tags técnicos

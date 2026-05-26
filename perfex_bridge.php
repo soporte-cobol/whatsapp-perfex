@@ -31,10 +31,10 @@ if (trim($received_token) !== trim($secret_key)) {
 $conn = mysqli_connect(APP_DB_HOSTNAME, APP_DB_USERNAME, APP_DB_PASSWORD, APP_DB_NAME);
 mysqli_set_charset($conn, "utf8");
 
-$raw_input = file_get_contents('php://input');
-$data_json = json_decode($raw_input, true) ?: [];
+$raw_body = file_get_contents('php://input');
+$data_json = json_decode($raw_body, true) ?: [];
 $action = $_GET['action'] ?? ($data_json['action'] ?? ($_POST['action'] ?? ''));
-$response = ['status' => 'error', 'message' => 'No action matched'];
+$response = ["status" => "error", "message" => "Action not found: $action"];
 
 switch ($action) {
     case 'get_customer_by_phone':
@@ -108,10 +108,11 @@ switch ($action) {
         $name = mysqli_real_escape_string($conn, $data['name'] ?? 'Usuario WA');
         $email = mysqli_real_escape_string($conn, $data['email'] ?? '');
         $phone = mysqli_real_escape_string($conn, $data['phonenumber'] ?? '');
+        $vat = mysqli_real_escape_string($conn, $data['vat'] ?? '');
 
         // 1. Crear Cliente (Company)
-        $sql1 = "INSERT INTO tblclients (company, phonenumber, datecreated, leadid) 
-                 VALUES ('$name', '$phone', '" . date('Y-m-d H:i:s') . "', 0)";
+        $sql1 = "INSERT INTO tblclients (company, phonenumber, vat, datecreated, leadid) 
+                 VALUES ('$name', '$phone', '$vat', '" . date('Y-m-d H:i:s') . "', 0)";
 
         if (mysqli_query($conn, $sql1)) {
             $userid = mysqli_insert_id($conn);
