@@ -31,8 +31,9 @@ if (trim($received_token) !== trim($secret_key)) {
 $conn = mysqli_connect(APP_DB_HOSTNAME, APP_DB_USERNAME, APP_DB_PASSWORD, APP_DB_NAME);
 mysqli_set_charset($conn, "utf8");
 
-$data_json = json_decode(file_get_contents('php://input'), true);
-$action = $_GET['action'] ?? $_POST['action'] ?? $data_json['action'] ?? '';
+$json_input = file_get_contents('php://input');
+$data_json = json_decode($json_input, true);
+$action = $_GET['action'] ?? $_POST['action'] ?? ($data_json['action'] ?? '');
 $response = [];
 
 switch ($action) {
@@ -85,7 +86,7 @@ switch ($action) {
         break;
 
     case 'create_ticket':
-        $data = $data_json;
+        $data = is_array($data_json) ? $data_json : $_POST;
         $subject = mysqli_real_escape_string($conn, $data['subject'] ?? 'Consulta desde WhatsApp');
         $message = mysqli_real_escape_string($conn, $data['message'] ?? '');
         $priority = intval($data['priority'] ?? 2);
@@ -103,7 +104,7 @@ switch ($action) {
         break;
 
     case 'create_lead':
-        $data = $data_json;
+        $data = is_array($data_json) ? $data_json : $_POST;
         $name = mysqli_real_escape_string($conn, $data['name'] ?? 'Cliente WhatsApp');
         $email = mysqli_real_escape_string($conn, $data['email'] ?? '');
         $phonenumber = mysqli_real_escape_string($conn, $data['phonenumber'] ?? '');
