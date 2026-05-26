@@ -192,9 +192,9 @@ app.post('/ai/plugin', async (req, res) => {
                         (tix.length ? `🎫 Tickets recientes: ${tix.length}\n` : "");
             
             await whatsapp.sendText(cleanFrom, rigid);
-            aiResponse = await gemini.generateText(`${aiConfig.PRE_PROMPT}\nCLIENTE IDENTIFICADO: ${customer.firstname || 'Usuario'}\nCORREO: ${session.email || customer.email}${destinoContext}\nINSTRUCCIÓN: Ya identificamos al cliente. Usa el desglose de pasajeros de destinoContext para el ticket. Si quiere reservar, usa [CREATE_TICKET: 1 | Venta | Resumen]. NO vuelvas a pedir el correo.\nPREGUNTA: "${msg}"\n${aiConfig.POST_PROMPT}`);
+            aiResponse = await gemini.generateText(`${aiConfig.PRE_PROMPT}\nCLIENTE IDENTIFICADO: ${customer.firstname || 'Usuario'}\nCORREO: ${session.email || customer.email}${destinoContext}\nINSTRUCCIÓN: Ya identificamos al cliente y tenemos su correo. Responde su pregunta directamente. Solo crea un ticket si el cliente EXPLÍCITAMENTE quiere reservar, pagar o confirmar. NO abras ticket por preguntas informativas o cotizaciones.\nPREGUNTA: "${msg}"\n${aiConfig.POST_PROMPT}`);
         } else {
-            const instr = session.email ? `Ya tienes su correo (${session.email}). Si quiere concretar, usa [CREATE_TICKET: 1 | Venta | Detalle].` : "Pide el correo amablemente.";
+            const instr = session.email ? `Ya tienes su correo (${session.email}). Asesora y cotiza libremente. Solo crea un ticket si el cliente EXPLÍCITAMENTE dice que quiere reservar, pagar o confirmar.` : "Asesora al cliente y pídele el correo amablemente cuando sea el momento adecuado.";
             aiResponse = await gemini.generateText(`${aiConfig.PRE_PROMPT}\n${destinoContext}\nINSTRUCCIÓN: ${instr}\nPREGUNTA: "${msg}"\n${aiConfig.POST_PROMPT}`);
         }
 

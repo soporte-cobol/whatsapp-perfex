@@ -216,7 +216,10 @@ switch ($action) {
 // Limpieza de buffer para evitar que warnings de PHP corrompan el JSON
 if (ob_get_length()) ob_clean();
 
-// Forzamos que la respuesta sea un objeto JSON válido ({}) y no un array ([])
+// Si la respuesta es un array (get_invoices, get_tickets, get_projects), la enviamos como array JSON [].
+// Si es un objeto (búsquedas de cliente, crear ticket, etc.), la enviamos como objeto JSON {}.
 header('Content-Type: application/json');
-echo json_encode((object)$response, JSON_UNESCAPED_UNICODE | JSON_FORCE_OBJECT);
+echo is_array($response)
+    ? json_encode($response, JSON_UNESCAPED_UNICODE)
+    : json_encode((object)$response, JSON_UNESCAPED_UNICODE | JSON_FORCE_OBJECT);
 mysqli_close($conn);
