@@ -116,6 +116,12 @@ function calcularPrecio(destino, adultos = 1, ninos = 0, bebes = 0) {
     };
 }
 
+const DEPT_EMAILS = {
+    1: "ventas@portal.gmgroup.com.co",
+    2: "reservas@portal.gmgroup.com.co",
+    3: "asistencia@portal.gmgroup.com.co"
+};
+
 /**
  * Determina si el bot debe estar activo basándose en el horario laboral.
  * El bot NO funciona en estos rangos (Horario de oficina):
@@ -147,6 +153,7 @@ module.exports = {
     calcularPrecio,
     buildDestinationsCatalog,
     isBotActive,
+    DEPT_EMAILS,
 
     BOT_NAME: "Laura",
 

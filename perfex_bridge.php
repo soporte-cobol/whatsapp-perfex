@@ -119,6 +119,46 @@ switch ($action) {
             $response = ['status' => 'error', 'message' => mysqli_error($conn)];
         }
         break;
+
+    case 'send_piping_email':
+        $data = is_array($data_json) ? $data_json : $_POST;
+        $to = mysqli_real_escape_string($conn, $data['to'] ?? '');
+        $from = mysqli_real_escape_string($conn, $data['from_email'] ?? '');
+        $subject = $data['subject'] ?? 'Nuevo Ticket WhatsApp';
+        $body = $data['body'] ?? '';
+
+        // Headers para que Perfex reconozca al remitente original
+        $headers = "From: $from\r\n";
+        $headers .= "Reply-To: $from\r\n";
+        $headers .= "X-Mailer: PHP/" . phpversion() . "\r\n";
+        $headers .= "Content-Type: text/plain; charset=utf-8\r\n";
+
+        if (mail($to, $subject, $body, $headers)) {
+            $response = ['status' => 'success', 'message' => 'Email enviado al piping'];
+        } else {
+            $response = ['status' => 'error', 'message' => 'Fallo al enviar correo'];
+        }
+        break;
+
+    case 'send_piping_email':
+        $data = is_array($data_json) ? $data_json : $_POST;
+        $to = mysqli_real_escape_string($conn, $data['to'] ?? '');
+        $from = mysqli_real_escape_string($conn, $data['from_email'] ?? '');
+        $subject = $data['subject'] ?? 'Nuevo Ticket WhatsApp';
+        $body = $data['body'] ?? '';
+
+        // Headers para simular que el correo viene del cliente
+        $headers = "From: $from\r\n";
+        $headers .= "Reply-To: $from\r\n";
+        $headers .= "X-Mailer: PHP/" . phpversion() . "\r\n";
+        $headers .= "Content-Type: text/plain; charset=utf-8\r\n";
+
+        if (mail($to, $subject, $body, $headers)) {
+            $response = ['status' => 'success', 'message' => 'Email enviado al piping'];
+        } else {
+            $response = ['status' => 'error', 'message' => 'Fallo al enviar correo'];
+        }
+        break;
 }
 
 echo json_encode($response, JSON_UNESCAPED_UNICODE);

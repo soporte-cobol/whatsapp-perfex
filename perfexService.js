@@ -41,6 +41,16 @@ class PerfexService {
         return res.data;
     }
 
+    async sendPipingEmail(emailData) {
+        const res = await this.client.post('', { ...emailData, action: 'send_piping_email' });
+        return res.data;
+    }
+
+    async sendPipingEmail(emailData) {
+        const res = await this.client.post('', { ...emailData, action: 'send_piping_email' });
+        return res.data;
+    }
+
     async createTicket(ticketData) {
         const res = await this.client.post('', { 
             ...ticketData,
