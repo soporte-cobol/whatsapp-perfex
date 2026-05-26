@@ -103,18 +103,21 @@ switch ($action) {
         }
         break;
 
-    case 'create_lead':
+    case 'create_customer':
         $data = is_array($data_json) ? $data_json : $_POST;
-        $name = mysqli_real_escape_string($conn, $data['name'] ?? 'Cliente WhatsApp');
+        $name = mysqli_real_escape_string($conn, $data['name'] ?? 'WA ' . ($data['phonenumber'] ?? 'User'));
         $email = mysqli_real_escape_string($conn, $data['email'] ?? '');
-        $phonenumber = mysqli_real_escape_string($conn, $data['phonenumber'] ?? '');
-        $description = mysqli_real_escape_string($conn, $data['description'] ?? 'Interés desde WhatsApp AI');
-        
-        $sql = "INSERT INTO tblleads (name, email, phonenumber, description, source, status, dateadded) 
-                VALUES ('$name', '$email', '$phonenumber', '$description', 1, 1, '" . date('Y-m-d H:i:s') . "')";
-        
-        if (mysqli_query($conn, $sql)) {
-            $response = ['status' => 'success', 'lead_id' => mysqli_insert_id($conn)];
+        $phone = mysqli_real_escape_string($conn, $data['phonenumber'] ?? '');
+
+        // 1. Crear Cliente (Company)
+        $sql1 = "INSERT INTO tblclients (company, phonenumber, datecreated) VALUES ('$name', '$phone', '" . date('Y-m-d H:i:s') . "')";
+        if (mysqli_query($conn, $sql1)) {
+            $userid = mysqli_insert_id($conn);
+            // 2. Crear Contacto Principal
+            $sql2 = "INSERT INTO tblcontacts (userid, firstname, lastname, email, phonenumber, is_primary) 
+                     VALUES ($userid, '$name', '', '$email', '$phone', 1)";
+            mysqli_query($conn, $sql2);
+            $response = ['status' => 'success', 'customerId' => $userid];
         } else {
             $response = ['status' => 'error', 'message' => mysqli_error($conn)];
         }
@@ -127,27 +130,7 @@ switch ($action) {
         $subject = $data['subject'] ?? 'Nuevo Ticket WhatsApp';
         $body = $data['body'] ?? '';
 
-        // Headers para que Perfex reconozca al remitente original
-        $headers = "From: $from\r\n";
-        $headers .= "Reply-To: $from\r\n";
-        $headers .= "X-Mailer: PHP/" . phpversion() . "\r\n";
-        $headers .= "Content-Type: text/plain; charset=utf-8\r\n";
-
-        if (mail($to, $subject, $body, $headers)) {
-            $response = ['status' => 'success', 'message' => 'Email enviado al piping'];
-        } else {
-            $response = ['status' => 'error', 'message' => 'Fallo al enviar correo'];
-        }
-        break;
-
-    case 'send_piping_email':
-        $data = is_array($data_json) ? $data_json : $_POST;
-        $to = mysqli_real_escape_string($conn, $data['to'] ?? '');
-        $from = mysqli_real_escape_string($conn, $data['from_email'] ?? '');
-        $subject = $data['subject'] ?? 'Nuevo Ticket WhatsApp';
-        $body = $data['body'] ?? '';
-
-        // Headers para simular que el correo viene del cliente
+        // Headers para simular que el correo viene del cliente (Activa el Piping)
         $headers = "From: $from\r\n";
         $headers .= "Reply-To: $from\r\n";
         $headers .= "X-Mailer: PHP/" . phpversion() . "\r\n";

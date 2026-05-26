@@ -36,13 +36,8 @@ class PerfexService {
         return Array.isArray(res.data) ? res.data : [];
     }
 
-    async createLead(leadData) {
-        const res = await this.client.post('', { ...leadData, action: 'create_lead' });
-        return res.data;
-    }
-
-    async sendPipingEmail(emailData) {
-        const res = await this.client.post('', { ...emailData, action: 'send_piping_email' });
+    async createCustomer(customerData) {
+        const res = await this.client.post('', { ...customerData, action: 'create_customer' });
         return res.data;
     }
 

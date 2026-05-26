@@ -105,15 +105,15 @@ app.post('/ai/plugin', async (req, res) => {
             if (!customer.found && isAccountInquiry) customer = await perfex.getCustomerByPhone(cleanFrom);
         }
 
-        // 6. REGISTRO DE LEAD (Si hay correo y no es cliente)
+        // 6. REGISTRO DE CLIENTE (Si hay correo y no está en el sistema)
         if (session.email && !customer.found) {
-            console.log(`👤 REGISTRANDO LEAD: ${session.email}`);
-            await perfex.createLead({
-                name: `Lead WA ${cleanFrom}`,
+            console.log(`👤 REGISTRANDO CLIENTE: ${session.email}`);
+            await perfex.createCustomer({
+                name: `WA ${cleanFrom}`,
                 email: session.email,
-                phonenumber: cleanFrom,
-                description: `Interés: ${session.destination?.nombre || 'General'}. PAX: ${session.adultos}A, ${session.ninos}N.`
-            }).catch(e => console.error("❌ LEAD FAIL:", e.message));
+                phonenumber: cleanFrom
+            }).then(r => { if(r.customerId) customer.customerId = r.customerId; })
+              .catch(e => console.error("❌ CLIENT FAIL:", e.message));
         }
 
         // 7. CONTEXTO IA
@@ -137,19 +137,29 @@ app.post('/ai/plugin', async (req, res) => {
             aiResponse = await gemini.generateText(`${aiConfig.PRE_PROMPT}\n${destinoContext}\nINSTRUCCIÓN: ${instr}\nPREGUNTA: "${msg}"\n${aiConfig.POST_PROMPT}`);
         }
 
-        // 9. TICKET Y ENVÍO
+        // 9. PROCESAMIENTO TICKET (VIA EMAIL PIPING)
         if (aiResponse) {
             const ticketMatch = aiResponse.match(/\[CREATE_TICKET:\s*(\d+)\s*\|\s*([^|]+)\s*\|\s*([^\]]+)\]/i);
             if (ticketMatch) {
-                await perfex.createTicket({
-                    customerId: customer.customerId || 0,
-                    subject: ticketMatch[2].trim(),
-                    message: `${ticketMatch[3].trim()}\n\n---\nWA: ${cleanFrom}\nEmail: ${session.email || customer.email || 'N/A'}`,
-                    department: parseInt(ticketMatch[1]),
-                    priority: 2
-                }).then(r => console.log(`✅ Ticket Creado:`, JSON.stringify(r))).catch(e => console.error(`❌ Error Ticket:`, e.message));
+                const deptId = parseInt(ticketMatch[1]);
+                const deptEmail = aiConfig.DEPT_EMAILS[deptId] || aiConfig.DEPT_EMAILS[1];
+                const userEmail = session.email || customer.email;
+
+                if (userEmail) {
+                    await perfex.sendPipingEmail({
+                        to: deptEmail,
+                        from_email: userEmail,
+                        subject: ticketMatch[2].trim(),
+                        body: `DATOS DE CONTACTO\n-----------------\nWhatsApp: ${cleanFrom}\nEmail: ${userEmail}\n\nSOLICITUD:\n----------\n${ticketMatch[3].trim()}\n\n---\nGenerado por Laura AI`
+                    }).then(r => console.log(`✅ Email enviado al Piping [${deptEmail}]:`, JSON.stringify(r)))
+                      .catch(e => console.error(`❌ Error Piping:`, e.message));
+                } else {
+                    console.warn("⚠️ No se pudo enviar el ticket: Falta correo del usuario.");
+                }
             }
-            await whatsapp.sendText(cleanFrom, aiResponse.replace(/\[CREATE_TICKET:.*?\]/g, '').trim());
+            // Enviar respuesta sin los tags técnicos
+            const cleanResponse = aiResponse.replace(/\[CREATE_TICKET:.*?\]/g, '').trim();
+            await whatsapp.sendText(cleanFrom, cleanResponse);
         }
 
         return res.json({ status: "success" });
