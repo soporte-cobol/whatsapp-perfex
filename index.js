@@ -12,6 +12,14 @@ app.use(express.urlencoded({ extended: true }));
 // Memoria temporal de la sesión (se limpia al reiniciar el servidor)
 const sessions = {};
 
+// Helper para convertir palabras comunes de números a dígitos
+const textToNumber = (text) => {
+    const map = { 'un': 1, 'uno': 1, 'una': 1, 'dos': 2, 'tres': 3, 'cuatro': 4, 'cinco': 5, 'seis': 6, 'siete': 7, 'ocho': 8, 'nueve': 9, 'diez': 10 };
+    const match = String(text).toLowerCase().trim();
+    if (map[match]) return map[match];
+    return parseInt(match) || 1;
+};
+
 // Middleware para capturar errores de JSON mal formado antes de llegar a la ruta
 app.use((err, req, res, next) => {
     if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
@@ -113,6 +121,34 @@ app.post('/ai/plugin', async (req, res) => {
         console.log(`📩 ORIGINAL: "${rawMsg.substring(0, 60)}${rawMsg.length > 60 ? '...' : ''}"`);
         console.log(`📩 PROCESADO (Sin firma): "${msg}" | TEL: ${cleanFrom}`);
 
+        // --- PROCESAMIENTO DE MEMORIA Y PAX ---
+        const somosMatch   = msg.match(/somos\s+(\d+|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)/i);
+        const adultosMatch = msg.match(/(\d+|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s*adultos?/i);
+        const ninosMatch   = msg.match(/(\d+|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s*ni[ñn]os?/i);
+        const bebesMatch   = msg.match(/(\d+|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s*beb[eé]s?/i);
+        
+        if (adultosMatch) session.adultos = textToNumber(adultosMatch[1]);
+        else if (somosMatch) session.adultos = textToNumber(somosMatch[1]);
+        if (ninosMatch) session.ninos = textToNumber(ninosMatch[1]);
+        if (bebesMatch) session.bebes = textToNumber(bebesMatch[1]);
+        if (emailFound) session.email = emailFound[0];
+
+        let destinoContext = '';
+        if (session.destination) {
+            const precio = aiConfig.calcularPrecio(session.destination, session.adultos, session.ninos, session.bebes);
+            const fmt = (n) => `$${n.toLocaleString('es-CO')} COP`;
+            console.log(`💰 [MEMORIA] Destino: ${session.destination.nombre} | PAX: ${session.adultos}A, ${session.ninos}N, ${session.bebes}B`);
+            destinoContext = `\nDESTINO ACTUAL EN CONVERSACIÓN: ${session.destination.nombre}
+PASAJEROS ACTUALES: ${session.adultos} Adultos, ${session.ninos} Niños.
+DURACION: ${session.destination.duracion_dias} dias / ${session.destination.duracion_noches} noches
+INCLUYE: ${session.destination.incluye}
+CALCULO DE PRECIOS:
+  - Adultos: ${session.adultos} x ${fmt(session.destination.precio_adulto)}
+  - Ninos: ${session.ninos} x ${fmt(session.destination.precio_nino)}
+  - TOTAL ESTIMADO: ${fmt(precio.total)}
+INSTRUCCION: Presenta este cálculo. Si el cliente quiere concretar o reservar y ya tenemos su correo (${session.email || 'NO LO TIENES'}), crea el ticket de venta (ID 1) inmediatamente.`;
+        }
+
         let isAccountInquiry = false;
 
         // Keywords that strongly indicate the user wants to check their account/invoices
@@ -152,6 +188,9 @@ app.post('/ai/plugin', async (req, res) => {
             ]);
 
             console.log(`📊 Datos: ${invoices.length} facturas, ${projects.length} viajes.`);
+            
+            // Actualizar memoria de sesión con datos del CRM si están disponibles
+            if (customer.email) session.email = customer.email;
 
             let rigidMsg = `*RESUMEN DE CUENTA GM GROUP* 🏛️\n`;
             if (invoices.length > 0) {
@@ -162,7 +201,21 @@ app.post('/ai/plugin', async (req, res) => {
             }
 
             // También enviamos el contexto a Gemini para que pueda saludar o complementar
-            const aiMsg = await gemini.generateText(`${aiConfig.PRE_PROMPT}\n\nCLIENTE: ${customer.firstname}\nVIAJES: ${JSON.stringify(projects)}\nFACTURAS: ${JSON.stringify(invoices)}\n\nINSTRUCCIÓN: El cliente acaba de ser identificado. Salúdalo por su nombre y responde a su mensaje de forma muy breve y amigable.\n\nPREGUNTA: "${msg}"\n\n${aiConfig.POST_PROMPT}`);
+            const aiMsg = await gemini.generateText(`${aiConfig.PRE_PROMPT}
+            
+CLIENTE IDENTIFICADO: ${customer.firstname} ${customer.lastname}
+EMPRESA: ${customer.company}
+CORREO: ${customer.email}
+VIAJES ACTUALES: ${JSON.stringify(projects)}
+FACTURAS: ${JSON.stringify(invoices)}
+
+${destinoContext}
+
+INSTRUCCIÓN: El cliente ya está en el sistema. Si quiere concretar un viaje, USA EL TICKET DE VENTAS (ID 1) ya que tienes su correo: ${customer.email}. No se lo vuelvas a pedir.
+
+PREGUNTA DEL CLIENTE: "${msg}"
+
+${aiConfig.POST_PROMPT}`);
             
             await whatsapp.sendText(cleanFrom, rigidMsg);
             if (aiMsg) {
@@ -170,11 +223,11 @@ app.post('/ai/plugin', async (req, res) => {
                 const ticketRegex = /\[CREATE_TICKET:\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\]/i;
                 const ticketMatch = aiMsg.match(ticketRegex);
                 if (ticketMatch) {
-                    const [_, deptId, subject, message] = ticketMatch;
+                    const [_, deptId, subject, messageBody] = ticketMatch;
                     await perfex.createTicket({
                         customerId: customer.customerId,
                         subject: subject.trim(),
-                        message: `${message.trim()}\n\n---\nTel: ${cleanFrom}\nEmail: ${customer.email || 'Identificado por CRM'}`,
+                        message: `${messageBody.trim()}\n\n---\nTel: ${cleanFrom}\nEmail: ${customer.email || 'Identificado por CRM'}`,
                         department: parseInt(deptId) || 1,
                         priority: 2
                     }).then(r => console.log(`✅ Ticket creado:`, r)).catch(e => console.error(`❌ Error Ticket:`, e.message));
@@ -191,17 +244,6 @@ app.post('/ai/plugin', async (req, res) => {
         } else {
             console.log(`🤖 RESPUESTA GENERATIVA (Sin forzar identificación)`);
 
-            // Extraer número de personas del mensaje
-            const somosMatch   = msg.match(/somos\s+(\d+)/i);
-            const adultosMatch = msg.match(/(\d+)\s*adultos?/i);
-            const ninosMatch   = msg.match(/(\d+)\s*ni[ñn]os?/i);
-            const bebesMatch   = msg.match(/(\d+)\s*beb[eé]s?/i);
-            
-            if (adultosMatch) session.adultos = parseInt(adultosMatch[1]);
-            else if (somosMatch) session.adultos = parseInt(somosMatch[1]);
-            if (ninosMatch) session.ninos = parseInt(ninosMatch[1]);
-            if (bebesMatch) session.bebes = parseInt(bebesMatch[1]);
-
             // Registro de Lead si proporciona correo y no existe
             if (emailFound && !customer.found) {
                 console.log(`👤 Creando cliente potencial (Lead): ${emailFound[0]}`);
@@ -211,21 +253,6 @@ app.post('/ai/plugin', async (req, res) => {
                     phonenumber: cleanFrom,
                     description: `Interesado en viajar. Destino actual: ${session.destination ? session.destination.nombre : 'Por definir'}. PAX: ${session.adultos}A, ${session.ninos}N.`
                 }).catch(e => console.error("❌ Error Lead:", e.message));
-            }
-
-            let destinoContext = '';
-            if (session.destination) {
-                const precio = aiConfig.calcularPrecio(session.destination, session.adultos, session.ninos, session.bebes);
-                const fmt = (n) => `$${n.toLocaleString('es-CO')} COP`;
-                console.log(`💰 [MEMORIA] Destino: ${session.destination.nombre} | PAX: ${session.adultos}A, ${session.ninos}N, ${session.bebes}B`);
-                destinoContext = `\nDESTINO ACTUAL EN CONVERSACIÓN: ${session.destination.nombre}
-DURACION: ${session.destination.duracion_dias} dias / ${session.destination.duracion_noches} noches
-INCLUYE: ${session.destination.incluye}
-CALCULO DE PRECIOS:
-  - Adultos: ${session.adultos} x ${fmt(session.destination.precio_adulto)}
-  - Ninos: ${session.ninos} x ${fmt(session.destination.precio_nino)}
-  - TOTAL ESTIMADO: ${fmt(precio.total)}
-INSTRUCCION ESPECIAL: Presenta este calculo de forma calida. Menciona que incluye y anima a reservar. NO inventes precios.`;
             }
 
             const instruccion = session.destination
