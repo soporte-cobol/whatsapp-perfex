@@ -219,7 +219,7 @@ app.post('/ai/plugin', async (req, res) => {
                         priority: 2
                     }).then(async r => {
                         console.log(`✅ Ticket DB Creado:`, JSON.stringify(r));
-                        // La notificación se enviará automáticamente vía webhook desde el plugin de Perfex
+                        // La notificación se delega al webhook /ai/ticket-created que llamará tu plugin
                     }).catch(e => console.error(`❌ Error Ticket DB:`, e.message));
                 } else if (fromEmail) {
                     console.log(`📧 Simulando correo desde ${fromEmail} hacia ${deptEmail}...`);
