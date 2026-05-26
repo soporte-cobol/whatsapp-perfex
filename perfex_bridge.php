@@ -29,6 +29,9 @@ if (trim($received_token) !== trim($secret_key)) {
     die(json_encode(['error' => 'Token inválido', 'received' => $received_token]));
 }
 
+// Desactivar excepciones para manejar errores manualmente y evitar Fatal Errors que rompen el JSON
+mysqli_report(MYSQLI_REPORT_OFF);
+
 $conn = mysqli_connect(APP_DB_HOSTNAME, APP_DB_USERNAME, APP_DB_PASSWORD, APP_DB_NAME);
 if (!$conn) {
     die(json_encode(['error' => 'Error de conexión DB', 'detail' => mysqli_connect_error()]));
@@ -118,10 +121,17 @@ switch ($action) {
         $email = mysqli_real_escape_string($conn, $data['email'] ?? '');
         $phone = mysqli_real_escape_string($conn, $data['phonenumber'] ?? '');
         $vat = mysqli_real_escape_string($conn, $data['vat'] ?? '');
+        $now = date('Y-m-d H:i:s');
 
-        // 1. Crear Cliente - Espejo exacto del registro exitoso (Moneda 3, País 49, Bogotá, AddedFrom 1)
-        $sql1 = "INSERT INTO tblclients (company, phonenumber, vat, datecreated, active, default_currency, addedfrom, country, city, billing_country, shipping_country) 
-                 VALUES ('$name', '$phone', '$vat', '" . date('Y-m-d H:i:s') . "', 1, 3, 1, 49, 'Bogotá DC', 49, 49)";
+        // 1. Crear Cliente - Registro Espejo (Moneda 3, País 49, Bogotá, AddedFrom 1)
+        $sql1 = "INSERT INTO tblclients (
+                    company, phonenumber, vat, datecreated, active, 
+                    default_currency, addedfrom, country, city, 
+                    billing_country, shipping_country
+                ) VALUES (
+                    '$name', '$phone', '$vat', '$now', 1, 
+                    3, 1, 49, 'Bogotá DC', 49, 49
+                )";
 
         if (mysqli_query($conn, $sql1)) {
             $userid = mysqli_insert_id($conn);
@@ -132,9 +142,14 @@ switch ($action) {
             $lname = mysqli_real_escape_string($conn, count($parts) > 1 ? implode(' ', array_slice($parts, 1)) : '');
 
             // 2. Crear Contacto Principal
-            $sql2 = "INSERT INTO tblcontacts (userid, firstname, lastname, email, phonenumber, is_primary, datecreated) 
-                     VALUES ($userid, '$fname', '$lname', '$email', '$phone', 1, '" . date('Y-m-d H:i:s') . "')";
-            @mysqli_query($conn, $sql2); // El @ evita que errores de duplicado rompan el JSON
+            $sql2 = "INSERT INTO tblcontacts (
+                        userid, firstname, lastname, email, 
+                        phonenumber, is_primary, datecreated, active
+                    ) VALUES (
+                        $userid, '$fname', '$lname', '$email', 
+                        '$phone', 1, '$now', 1
+                    )";
+            mysqli_query($conn, $sql2);
             
             $response->status = 'success';
             $response->customerId = $userid;
