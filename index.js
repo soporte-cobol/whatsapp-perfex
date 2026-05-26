@@ -138,10 +138,11 @@ app.post('/ai/plugin', async (req, res) => {
                 
                 if (isSuccess) {
                     customer.customerId = res.customerId;
+                    customer.contactId = res.contactId;
                     customer.found = true;
                     customer.firstname = clientName;
                     customer.email = session.email;
-                    console.log(`✅ CLIENTE CREADO: ${clientName} (ID: ${customer.customerId})`);
+                    console.log(`✅ CLIENTE Y CONTACTO CREADOS: ${clientName} (Client: ${customer.customerId}, Contact: ${customer.contactId})`);
                 } else {
                     console.warn(`⚠️ El CRM no confirmó creación (Respuesta: ${JSON.stringify(res)}). Intentando rescate...`);
                     if (session.vat) customer = await perfex.getCustomerByVat(session.vat);
@@ -185,12 +186,19 @@ app.post('/ai/plugin', async (req, res) => {
                     console.log(`🎫 Creando Ticket DIRECTO para Cliente ID: ${customer.customerId}`);
                     await perfex.createTicket({
                         customerId: customer.customerId,
+                        contactId: customer.contactId || 0,
                         subject: subject,
                         message: message,
                         department: deptId,
                         priority: 2
-                    }).then(r => console.log(`✅ Ticket DB Creado:`, JSON.stringify(r)))
-                      .catch(e => console.error(`❌ Error Ticket DB:`, e.message));
+                    }).then(async r => {
+                        console.log(`✅ Ticket DB Creado:`, JSON.stringify(r));
+                        if (r.status === 'success') {
+                            const ticketUrl = `https://portal.gmgroup.com.co/viewticket/${r.ticket_id}`;
+                            const confirmation = `🎫 *¡Caso Registrado!*\n\n*Asunto:* ${subject}\n*Detalle:* ${message}\n\n🔗 Puedes seguir el estado de tu solicitud aquí:\n${ticketUrl}`;
+                            await whatsapp.sendText(cleanFrom, confirmation);
+                        }
+                    }).catch(e => console.error(`❌ Error Ticket DB:`, e.message));
                 } else if (fromEmail) {
                     console.log(`📧 Simulando correo desde ${fromEmail} hacia ${deptEmail}...`);
                     await perfex.sendPipingEmail({

@@ -104,9 +104,10 @@ switch ($action) {
         $priority = intval($data['priority'] ?? 2);
         $department = intval($data['department'] ?? 1);
         $userid = intval($data['customerId'] ?? 0);
+        $contactid = intval($data['contactId'] ?? 0);
         
-        $sql = "INSERT INTO tbltickets (subject, message, priority, department, userid, date, status) 
-                VALUES ('$subject', '$message', $priority, $department, $userid, '" . date('Y-m-d H:i:s') . "', 1)";
+        $sql = "INSERT INTO tbltickets (subject, message, priority, department, userid, contactid, date, status) 
+                VALUES ('$subject', '$message', $priority, $department, $userid, $contactid, '" . date('Y-m-d H:i:s') . "', 1)";
         
         if (mysqli_query($conn, $sql)) {
             $response = ['status' => 'success', 'ticket_id' => mysqli_insert_id($conn)];
@@ -150,9 +151,11 @@ switch ($action) {
                         '$phone', 1, '$now', 1
                     )";
             mysqli_query($conn, $sql2);
+            $contactid = mysqli_insert_id($conn);
             
             $response->status = 'success';
             $response->customerId = $userid;
+            $response->contactId = $contactid;
         } else {
             $response->status = 'error';
             $response->message = 'MySQL Error: ' . mysqli_error($conn);
