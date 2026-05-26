@@ -105,14 +105,18 @@ switch ($action) {
         $department = intval($data['department'] ?? 1);
         $userid = intval($data['customerId'] ?? 0);
         $contactid = intval($data['contactId'] ?? 0);
+        $ticketkey = md5(uniqid(microtime(), true));
         
-        $sql = "INSERT INTO tbltickets (subject, message, priority, department, userid, contactid, date, status) 
-                VALUES ('$subject', '$message', $priority, $department, $userid, $contactid, '" . date('Y-m-d H:i:s') . "', 1)";
+        $sql = "INSERT INTO tbltickets (ticketkey, subject, message, priority, department, userid, contactid, date, status) 
+                VALUES ('$ticketkey', '$subject', '$message', $priority, $department, $userid, $contactid, '" . date('Y-m-d H:i:s') . "', 1)";
         
         if (mysqli_query($conn, $sql)) {
-            $response = ['status' => 'success', 'ticket_id' => mysqli_insert_id($conn)];
+            $response->status = 'success';
+            $response->ticket_id = mysqli_insert_id($conn);
+            $response->ticketkey = $ticketkey;
         } else {
-            $response = ['status' => 'error', 'message' => mysqli_error($conn)];
+            $response->status = 'error';
+            $response->message = mysqli_error($conn);
         }
         break;
 

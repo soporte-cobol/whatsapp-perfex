@@ -194,7 +194,7 @@ app.post('/ai/plugin', async (req, res) => {
                     }).then(async r => {
                         console.log(`✅ Ticket DB Creado:`, JSON.stringify(r));
                         if (r.status === 'success') {
-                            const ticketUrl = `https://portal.gmgroup.com.co/viewticket/${r.ticket_id}`;
+                            const ticketUrl = `https://portal.gmgroup.com.co/viewticket/${r.ticket_id}/${r.ticketkey}`;
                             const confirmation = `🎫 *¡Caso Registrado!*\n\n*Asunto:* ${subject}\n*Detalle:* ${message}\n\n🔗 Puedes seguir el estado de tu solicitud aquí:\n${ticketUrl}`;
                             await whatsapp.sendText(cleanFrom, confirmation);
                         }
