@@ -1,10 +1,6 @@
-# Dependencias
 node_modules/
-
-# Variables de entorno (Contienen llaves de API)
 .env
-
-# Logs y temporales
-npm-debug.log*
+my_cobol/
+*.log
 .DS_Store
 dist/

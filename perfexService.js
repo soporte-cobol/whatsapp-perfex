@@ -31,6 +31,11 @@ class PerfexService {
         return Array.isArray(res.data) ? res.data : [];
     }
 
+    async getTickets(customerId) {
+        const res = await this.client.get('', { params: { token: this.apiToken, action: 'get_tickets', customer_id: customerId } });
+        return Array.isArray(res.data) ? res.data : [];
+    }
+
     async getProjects(customerId, limit = 3) {
         const res = await this.client.get('', { params: { token: this.apiToken, action: 'get_projects', customer_id: customerId, limit } });
         return Array.isArray(res.data) ? res.data : [];

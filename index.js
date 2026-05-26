@@ -104,8 +104,18 @@ app.post('/ai/plugin', async (req, res) => {
         const aMatch = msg.match(new RegExp(numPattern + '\\s*adultos?', 'i'));
         if (aMatch) session.adultos = textToNumber(aMatch[1]);
 
+        // Detección por lenguaje natural (Acompañantes)
+        if (msg.match(/espos[ao]|pareja|novi[ao]/i)) session.adultos = Math.max(session.adultos, 2);
+        if (msg.match(/\bhij[ao]\b|\bniñ[ao]\b/i)) session.ninos = Math.max(session.ninos, 1);
+        if (msg.match(/\bhij[ao]s\b|\bniñ[ao]s\b/i)) session.ninos = Math.max(session.ninos, 2);
+
         const nMatch = msg.match(new RegExp(numPattern + '\\s*ni[ñn]os?', 'i'));
         if (nMatch) session.ninos = textToNumber(nMatch[1]);
+
+        // Detección por lenguaje natural (Acompañantes)
+        if (msg.match(/espos[ao]|pareja|novi[ao]/i)) session.adultos = Math.max(session.adultos, 2);
+        if (msg.match(/\bhij[ao]\b|\bniñ[ao]\b/i)) session.ninos = Math.max(session.ninos, 1);
+        if (msg.match(/\bhij[ao]s\b|\bniñ[ao]s\b/i)) session.ninos = Math.max(session.ninos, 2);
 
         const bMatch = msg.match(new RegExp(numPattern + '\\s*(beb[ée]s?|infantes?)', 'i'));
         if (bMatch) session.bebes = textToNumber(bMatch[1]);
@@ -171,8 +181,16 @@ app.post('/ai/plugin', async (req, res) => {
         // 8. GENERACIÓN RESPUESTA
         let aiResponse = "";
         if (customer.found) {
-            const [inv, proj] = await Promise.all([perfex.getInvoices(customer.customerId).catch(()=>[]), perfex.getProjects(customer.customerId).catch(()=>[])]);
-            let rigid = `*RESUMEN GM GROUP*\n` + (inv.length ? `📄 Facturas:\n` + inv.map(i => `• ${i.number}: $${i.total}`).join('\n') : `✅ Sin deudas.`);
+            const [inv, proj, tix] = await Promise.all([
+                perfex.getInvoices(customer.customerId).catch(()=>[]), 
+                perfex.getProjects(customer.customerId).catch(()=>[]),
+                perfex.getTickets(customer.customerId).catch(()=>[])
+            ]);
+            
+            let rigid = `*RESUMEN GM GROUP*\n` + 
+                        (inv.length ? `📄 Facturas pendientes: ${inv.length}\n` : `✅ Sin deudas.\n`) +
+                        (tix.length ? `🎫 Tickets recientes: ${tix.length}\n` : "");
+            
             await whatsapp.sendText(cleanFrom, rigid);
             aiResponse = await gemini.generateText(`${aiConfig.PRE_PROMPT}\nCLIENTE IDENTIFICADO: ${customer.firstname || 'Usuario'}\nCORREO: ${session.email || customer.email}${destinoContext}\nINSTRUCCIÓN: Ya identificamos al cliente. Usa el desglose de pasajeros de destinoContext para el ticket. Si quiere reservar, usa [CREATE_TICKET: 1 | Venta | Resumen]. NO vuelvas a pedir el correo.\nPREGUNTA: "${msg}"\n${aiConfig.POST_PROMPT}`);
         } else {
@@ -201,11 +219,7 @@ app.post('/ai/plugin', async (req, res) => {
                         priority: 2
                     }).then(async r => {
                         console.log(`✅ Ticket DB Creado:`, JSON.stringify(r));
-                        if (r.status === 'success') {
-                            const ticketUrl = `https://portal.gmgroup.com.co/forms/tickets/${r.ticketkey}`;
-                            const confirmation = `🎫 *¡Caso Registrado!*\n\n*Asunto:* ${subject}\n\n🔗 Puedes ver y responder a tu solicitud aquí:\n${ticketUrl}`;
-                            await whatsapp.sendText(cleanFrom, confirmation);
-                        }
+                        // La notificación se enviará automáticamente vía webhook desde el plugin de Perfex
                     }).catch(e => console.error(`❌ Error Ticket DB:`, e.message));
                 } else if (fromEmail) {
                     console.log(`📧 Simulando correo desde ${fromEmail} hacia ${deptEmail}...`);
@@ -233,7 +247,7 @@ app.post('/ai/plugin', async (req, res) => {
     }
 });
 
-// Endpoint para notificar respuestas del staff (Desde Perfex)
+// Endpoint para notificar respuestas del staff (Llamado desde el Plugin en Perfex)
 app.post('/ai/staff-reply', async (req, res) => {
     const { ticket_id, staff_name, message, secret } = req.body;
     
@@ -242,18 +256,33 @@ app.post('/ai/staff-reply', async (req, res) => {
     try {
         const ticketData = await perfex.getTicketContactPhone(ticket_id);
         if (ticketData && ticketData.phonenumber) {
-            const cleanPhone = ticketData.phonenumber.replace(/\D/g, '');
-            const formattedPhone = `+${cleanPhone}`;
+            const formattedPhone = `+${ticketData.phonenumber.replace(/\D/g, '')}`;
             const ticketUrl = `https://portal.gmgroup.com.co/forms/tickets/${ticketData.ticketkey}`;
-            const notification = `✉️ *Nueva respuesta de ${staff_name}*\n\n"${message.substring(0, 300)}${message.length > 300 ? '...' : ''}"\n\n🔗 Revisa la respuesta completa aquí:\n${ticketUrl}`;
+            const notification = `✉️ *Nueva respuesta de ${staff_name}*\n\n"${message.substring(0, 400)}${message.length > 400 ? '...' : ''}"\n\n🔗 Ver respuesta completa:\n${ticketUrl}`;
             await whatsapp.sendText(formattedPhone, notification);
             console.log(`🔔 Notificación de Staff enviada a ${formattedPhone}`);
         }
         return res.json({ status: "success" });
-    } catch (e) {
-        console.error("❌ Error en notificación staff:", e.message);
-        return res.json({ status: "error" });
-    }
+    } catch (e) { return res.json({ status: "error", message: e.message }); }
+});
+
+// Endpoint para notificar tickets creados (Llamado desde el Plugin en Perfex)
+app.post('/ai/ticket-created', async (req, res) => {
+    const { ticket_id, subject, secret } = req.body;
+
+    if (secret !== process.env.WEBHOOK_API_KEY) return res.status(401).json({ status: "error" });
+
+    try {
+        const ticketData = await perfex.getTicketContactPhone(ticket_id);
+        if (ticketData && ticketData.phonenumber) {
+            const formattedPhone = `+${ticketData.phonenumber.replace(/\D/g, '')}`;
+            const ticketUrl = `https://portal.gmgroup.com.co/forms/tickets/${ticketData.ticketkey}`;
+            const notification = `🎫 *¡Caso Registrado!*\n\n*Asunto:* ${subject}\n\n🔗 Puedes seguir tu solicitud aquí:\n${ticketUrl}`;
+            await whatsapp.sendText(formattedPhone, notification);
+            console.log(`🔔 Notificación de Ticket Creado enviada a ${formattedPhone}`);
+        }
+        return res.json({ status: "success" });
+    } catch (e) { return res.json({ status: "error", message: e.message }); }
 });
 
 const PORT = process.env.PORT || 3000;

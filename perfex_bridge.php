@@ -89,6 +89,16 @@ switch ($action) {
         }
         break;
 
+    case 'get_tickets':
+        $response = [];
+        $cid = intval($_GET['customer_id']);
+        $sql = "SELECT ticketid, subject, status, ticketkey FROM tbltickets WHERE userid = $cid ORDER BY date DESC LIMIT 3";
+        $res = mysqli_query($conn, $sql);
+        while ($row = mysqli_fetch_assoc($res)) {
+            $response[] = $row;
+        }
+        break;
+
     case 'get_projects':
         $response = [];
         $cid = intval($_GET['customer_id']);
