@@ -39,7 +39,7 @@ mysqli_set_charset($conn, "utf8");
 $raw_body = file_get_contents('php://input');
 $data_json = json_decode($raw_body, true) ?: [];
 $action = $_GET['action'] ?? ($data_json['action'] ?? ($_POST['action'] ?? ''));
-$response = ["status" => "error", "message" => "Action not found: $action"];
+$response = (object)["status" => "error", "message" => "Action not found: $action"];
 
 switch ($action) {
     case 'get_customer_by_phone':
@@ -50,7 +50,7 @@ switch ($action) {
                 LEFT JOIN tblclients cl ON c.userid = cl.userid 
                 WHERE c.phonenumber LIKE '%$last7%' OR cl.phonenumber LIKE '%$last7%' LIMIT 1";
         $res = mysqli_query($conn, $sql);
-        $response = ($r = mysqli_fetch_assoc($res)) ? array_merge($r, ['found' => true]) : ['found' => false];
+        $response = ($r = mysqli_fetch_assoc($res)) ? (object)array_merge($r, ['found' => true]) : (object)['found' => false];
         break;
 
     case 'get_customer_by_email':
@@ -60,7 +60,7 @@ switch ($action) {
                 LEFT JOIN tblclients cl ON c.userid = cl.userid 
                 WHERE c.email = '$email' LIMIT 1";
         $res = mysqli_query($conn, $sql);
-        $response = ($r = mysqli_fetch_assoc($res)) ? array_merge($r, ['found' => true]) : ['found' => false];
+        $response = ($r = mysqli_fetch_assoc($res)) ? (object)array_merge($r, ['found' => true]) : (object)['found' => false];
         break;
 
     case 'get_customer_by_vat':
@@ -70,7 +70,7 @@ switch ($action) {
                 LEFT JOIN tblcontacts c ON cl.userid = c.userid AND c.is_primary = 1 
                 WHERE cl.vat LIKE '%$vat%' LIMIT 1";
         $res = mysqli_query($conn, $sql);
-        $response = ($r = mysqli_fetch_assoc($res)) ? array_merge($r, ['found' => true]) : ['found' => false];
+        $response = ($r = mysqli_fetch_assoc($res)) ? (object)array_merge($r, ['found' => true]) : (object)['found' => false];
         break;
 
     case 'get_invoices':
@@ -117,9 +117,9 @@ switch ($action) {
         $phone = mysqli_real_escape_string($conn, $data['phonenumber'] ?? '');
         $vat = mysqli_real_escape_string($conn, $data['vat'] ?? '');
 
-        // 1. Crear Cliente - Refinado según muestra manual (addedfrom=1, moneda=3, sin lenguaje forzado)
-        $sql1 = "INSERT INTO tblclients (company, phonenumber, vat, datecreated, active, default_currency, addedfrom) 
-                 VALUES ('$name', '$phone', '$vat', '" . date('Y-m-d H:i:s') . "', 1, 3, 1)";
+        // 1. Crear Cliente - Espejo exacto del registro exitoso (ID Moneda 3, País 49, Bogotá, AddedFrom 1)
+        $sql1 = "INSERT INTO tblclients (company, phonenumber, vat, datecreated, active, default_currency, addedfrom, country, city, billing_country, shipping_country) 
+                 VALUES ('$name', '$phone', '$vat', '" . date('Y-m-d H:i:s') . "', 1, 3, 1, 49, 'Bogotá DC', 49, 49)";
 
         if (mysqli_query($conn, $sql1)) {
             $userid = mysqli_insert_id($conn);
@@ -134,9 +134,9 @@ switch ($action) {
                      VALUES ($userid, '$fname', '$lname', '$email', '$phone', 1)";
             @mysqli_query($conn, $sql2); // El @ evita que errores de duplicado rompan el JSON
             
-            $response = ['status' => 'success', 'customerId' => $userid];
+            $response = (object)['status' => 'success', 'customerId' => $userid];
         } else {
-            $response = ['status' => 'error', 'message' => 'DB Error: ' . mysqli_error($conn), 'sql' => $sql1];
+            $response = (object)['status' => 'error', 'message' => 'MySQL Error: ' . mysqli_error($conn), 'sql' => $sql1];
         }
         break;
 

@@ -134,34 +134,18 @@ app.post('/ai/plugin', async (req, res) => {
                     vat: session.vat || ''
                 });
                 
-                if (res && (res.status === 'success' || res.customerId)) {
-                    const newId = res.customerId;
-                    console.log(`✅ Cliente Creado en CRM. ID: ${newId}. Verificando...`);
-                    
-                    // Forzamos la obtención de la data completa del cliente recién creado para el ticket
-                    const verified = await perfex.getCustomerByEmail(session.email);
-                    if (verified.found) {
-                        customer = verified;
-                        console.log(`✅ Cliente vinculado y verificado: ${customer.firstname}`);
-                    } else {
-                        // Si por algo no lo encuentra por email, asignamos el ID directamente
-                        customer.customerId = newId;
-                        customer.found = true;
-                    }
+                const isSuccess = res && (res.status === 'success' || res.customerId);
+                
+                if (isSuccess) {
+                    customer.customerId = res.customerId;
+                    customer.found = true;
+                    customer.firstname = clientName;
+                    console.log(`✅ Cliente Creado Exitosamente: ${clientName} (ID: ${customer.customerId})`);
                 } else {
-                    const errorMsg = res && typeof res === 'object' ? JSON.stringify(res) : String(res || 'Respuesta vacía');
-                    console.warn(`⚠️ El CRM rechazó la creación (Respuesta: ${errorMsg}). Intentando rescate...`);
-                    // Búsqueda de rescate: Quizás el cliente ya existía pero con otro teléfono
+                    console.warn(`⚠️ Fallo en creación (Respuesta: ${JSON.stringify(res)}). Buscando rescate...`);
                     if (session.vat) customer = await perfex.getCustomerByVat(session.vat);
                     if (!customer.found && session.email) customer = await perfex.getCustomerByEmail(session.email);
-                    
-                    if (customer.found) {
-                        console.log(`✅ Cliente recuperado: ${customer.customerId}`);
-                    }
-
-                    if (!customer.found) {
-                        console.error("❌ El CRM rechazó la creación del cliente. Respuesta:", JSON.stringify(res));
-                    }
+                    if (customer.found) console.log(`✅ Cliente rescatado: ${customer.firstname} (ID: ${customer.customerId})`);
                 }
             } catch (e) {
                 console.error("❌ ERROR AL CREAR CLIENTE:", e.message);
