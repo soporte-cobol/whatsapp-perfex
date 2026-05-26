@@ -7,9 +7,8 @@ class GeminiService {
         // Lista de modelos disponibles y sus fallbacks
         this.models = [
             'gemini-3.5-flash',
-            'gemini-3.1-flash-lite',
-            'gemini-2.5-pro',
-            'gemini-2.5-flash',
+            'gemini-1.5-flash',
+            'gemini-1.5-pro',
             'gemini-2.0-flash'
         ];
         if (preferredModel && !this.models.includes(preferredModel)) {

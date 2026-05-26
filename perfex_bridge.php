@@ -116,9 +116,9 @@ switch ($action) {
         $phone = mysqli_real_escape_string($conn, $data['phonenumber'] ?? '');
         $vat = mysqli_real_escape_string($conn, $data['vat'] ?? '');
 
-        // 1. Crear Cliente - SQL de Máxima Compatibilidad
-        $sql1 = "INSERT INTO tblclients (company, phonenumber, vat, datecreated, active) 
-                 VALUES ('$name', '$phone', '$vat', '" . date('Y-m-d H:i:s') . "', 1)";
+        // 1. Crear Cliente - SQL con campos obligatorios de Perfex
+        $sql1 = "INSERT INTO tblclients (company, phonenumber, vat, datecreated, active, default_language, default_currency, addedfrom) 
+                 VALUES ('$name', '$phone', '$vat', '" . date('Y-m-d H:i:s') . "', 1, 'spanish', 0, 0)";
 
         if (mysqli_query($conn, $sql1)) {
             $userid = mysqli_insert_id($conn);
@@ -135,7 +135,7 @@ switch ($action) {
             
             $response = ['status' => 'success', 'customerId' => $userid];
         } else {
-            $response = ['status' => 'error', 'message' => 'Error DB: ' . mysqli_error($conn)];
+            $response = ['status' => 'error', 'message' => 'MySQL Error: ' . mysqli_error($conn)];
         }
         break;
 
