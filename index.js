@@ -49,20 +49,6 @@ app.get('/ai/debug', (req, res) => {
 
 app.post('/ai/plugin', async (req, res) => {
     try {
-        // Verificar si el bot debe operar según el horario configurado
-        if (!aiConfig.isBotActive()) {
-            const now = new Date();
-            console.log(`⏳ [HORARIO LABORAL] Bot desactivado (Hora: ${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}). Ignorando mensaje.`);
-            return res.json({ status: "success", message: "Bot inactive during business hours", stop: true });
-        }
-
-        // 1. LOG INMEDIATO: Ver exactamente qué llega al servidor
-        console.log(`\n📥 WEBHOOK RECIBIDO - ${new Date().toISOString()}`);
-        console.log(`📦 CUERPO (BODY):`, req.body ? JSON.stringify(req.body) : 'VACÍO');
-        if (req.headers['x-api-key']) {
-            console.log(`🔑 AUTH: X-API-KEY Detectado`);
-        }
-        
         const data = req.body?.data || req.body || {};
         const rawMsg = (data.message || "").trim();
         // Eliminar la firma del plan gratuito de la API para que no ensucie el procesamiento
@@ -70,18 +56,32 @@ app.post('/ai/plugin', async (req, res) => {
         const from = String(data.phone || data.wid || data.from || "");
         const cleanFrom = from.split('@')[0].replace(/\D/g, '');
 
-        // --- EXTRACCIÓN PREVENTIVA DE DATOS (Ahora que msg y cleanFrom existen) ---
+        // 1. LOG INMEDIATO: Ver exactamente qué llega al servidor
+        console.log(`\n📥 WEBHOOK RECIBIDO - ${new Date().toISOString()}`);
+        console.log(`📦 CUERPO (BODY):`, req.body ? JSON.stringify(req.body) : 'VACÍO');
+
+        // Verificar si el bot debe operar según el horario configurado
+        if (!aiConfig.isBotActive()) {
+            console.log(`⏳ [HORARIO LABORAL] Bot desactivado (Tel: ${cleanFrom}). Ignorando mensaje.`);
+            return res.json({ status: "success", message: "Bot inactive during business hours", stop: true });
+        }
+
+        if (req.headers['x-api-key']) {
+            console.log(`🔑 AUTH: X-API-KEY Detectado`);
+        }
+
+        // --- EXTRACCIÓN PREVENTIVA DE DATOS ---
         const emailFound = msg.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
         const nitMatch = msg.match(/\d{7,}/);
         const destinoDetectado = aiConfig.findDestination(msg);
         
         // Inicializar o recuperar sesión del usuario
-        if (!sessions[cleanFrom]) {
+        if (cleanFrom && !sessions[cleanFrom]) {
             sessions[cleanFrom] = { destination: null, adultos: 1, ninos: 0, bebes: 0 };
         }
-        const session = sessions[cleanFrom];
+        const session = sessions[cleanFrom] || { destination: null, adultos: 1, ninos: 0, bebes: 0 };
         if (destinoDetectado) session.destination = destinoDetectado;
-
+        
         const secret = cleanString(req.body?.secret || req.body?.token || req.headers['x-api-key']);
         const configSecret = cleanString(process.env.WEBHOOK_API_KEY);
 
