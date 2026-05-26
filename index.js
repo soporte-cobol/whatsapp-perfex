@@ -135,14 +135,23 @@ app.post('/ai/plugin', async (req, res) => {
                 });
                 
                 if (res && (res.status === 'success' || res.customerId)) {
-                    customer.customerId = res.customerId;
-                    customer.found = true;
-                    customer.email = session.email;
-                    customer.firstname = clientName;
-                    console.log(`✅ Cliente Creado y Vinculado en Memoria. ID: ${customer.customerId}`);
+                    const newId = res.customerId;
+                    console.log(`✅ Cliente Creado en CRM. ID: ${newId}. Verificando...`);
+                    
+                    // Forzamos la obtención de la data completa del cliente recién creado para el ticket
+                    const verified = await perfex.getCustomerByEmail(session.email);
+                    if (verified.found) {
+                        customer = verified;
+                        console.log(`✅ Cliente vinculado y verificado: ${customer.firstname}`);
+                    } else {
+                        // Si por algo no lo encuentra por email, asignamos el ID directamente
+                        customer.customerId = newId;
+                        customer.found = true;
+                    }
                 } else {
-                    console.warn(`⚠️ El CRM no confirmó la creación (Respuesta: ${JSON.stringify(res)}). Intentando rescate...`);
-                    // Búsqueda de último recurso por si el cliente ya existía en el CRM
+                    const errorMsg = res && typeof res === 'object' ? JSON.stringify(res) : String(res || 'Respuesta vacía');
+                    console.warn(`⚠️ El CRM rechazó la creación (Respuesta: ${errorMsg}). Intentando rescate...`);
+                    // Búsqueda de rescate: Quizás el cliente ya existía pero con otro teléfono
                     if (session.vat) customer = await perfex.getCustomerByVat(session.vat);
                     if (!customer.found && session.email) customer = await perfex.getCustomerByEmail(session.email);
                     
