@@ -31,8 +31,8 @@ if (trim($received_token) !== trim($secret_key)) {
 $conn = mysqli_connect(APP_DB_HOSTNAME, APP_DB_USERNAME, APP_DB_PASSWORD, APP_DB_NAME);
 mysqli_set_charset($conn, "utf8");
 
-$json_input = file_get_contents('php://input');
-$data_json = json_decode($json_input, true);
+$raw_input = file_get_contents('php://input');
+$data_json = json_decode($raw_input, true) ?: [];
 $action = $_GET['action'] ?? $_POST['action'] ?? ($data_json['action'] ?? '');
 $response = [];
 
@@ -104,13 +104,15 @@ switch ($action) {
         break;
 
     case 'create_customer':
-        $data = is_array($data_json) ? $data_json : $_POST;
-        $name = mysqli_real_escape_string($conn, $data['name'] ?? 'WA ' . ($data['phonenumber'] ?? 'User'));
+        $data = count($data_json) > 0 ? $data_json : $_POST;
+        $name = mysqli_real_escape_string($conn, $data['name'] ?? 'Usuario WA');
         $email = mysqli_real_escape_string($conn, $data['email'] ?? '');
         $phone = mysqli_real_escape_string($conn, $data['phonenumber'] ?? '');
 
         // 1. Crear Cliente (Company)
-        $sql1 = "INSERT INTO tblclients (company, phonenumber, datecreated) VALUES ('$name', '$phone', '" . date('Y-m-d H:i:s') . "')";
+        $sql1 = "INSERT INTO tblclients (company, phonenumber, datecreated, leadid) 
+                 VALUES ('$name', '$phone', '" . date('Y-m-d H:i:s') . "', 0)";
+        
         if (mysqli_query($conn, $sql1)) {
             $userid = mysqli_insert_id($conn);
             // 2. Crear Contacto Principal
@@ -124,23 +126,28 @@ switch ($action) {
         break;
 
     case 'send_piping_email':
-        $data = is_array($data_json) ? $data_json : $_POST;
+        $data = count($data_json) > 0 ? $data_json : $_POST;
         $to = mysqli_real_escape_string($conn, $data['to'] ?? '');
         $from = mysqli_real_escape_string($conn, $data['from_email'] ?? '');
         $subject = $data['subject'] ?? 'Nuevo Ticket WhatsApp';
         $body = $data['body'] ?? '';
 
-        // Headers para simular que el correo viene del cliente (Activa el Piping)
+        // Headers críticos para simular que el correo viene del cliente
         $headers = "From: $from\r\n";
         $headers .= "Reply-To: $from\r\n";
         $headers .= "X-Mailer: PHP/" . phpversion() . "\r\n";
+        $headers .= "MIME-Version: 1.0\r\n";
         $headers .= "Content-Type: text/plain; charset=utf-8\r\n";
 
         if (mail($to, $subject, $body, $headers)) {
-            $response = ['status' => 'success', 'message' => 'Email enviado al piping'];
+            $response = ['status' => 'success', 'sent' => true];
         } else {
-            $response = ['status' => 'error', 'message' => 'Fallo al enviar correo'];
+            $response = ['status' => 'error', 'message' => 'Error en función mail()'];
         }
+        break;
+
+    default:
+        $response = ['status' => 'error', 'message' => 'Accion no reconocida: ' . $action];
         break;
 }
 
