@@ -59,6 +59,11 @@ class PerfexService {
         });
         return res.data;
     }
+
+    async getTicketContactPhone(ticketId) {
+        const res = await this.client.get('', { params: { token: this.apiToken, action: 'get_ticket_contact_phone', ticket_id: ticketId } });
+        return res.data?.phonenumber || null;
+    }
 }
 
 module.exports = PerfexService;

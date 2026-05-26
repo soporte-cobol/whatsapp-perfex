@@ -98,13 +98,18 @@ app.post('/ai/plugin', async (req, res) => {
         const destinoDetectado = aiConfig.findDestination(msg);
         if (destinoDetectado) session.destination = destinoDetectado;
 
-        // Regex Ultra-Estricto: Solo números de 1 o 2 dígitos rodeados de espacios/límites
-        const paxNum = "(^|\\s)(\\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)(\\s|$)";
-        const adultosMatch = msg.match(new RegExp(paxNum + '\\s*adultos?', 'i'));
-        const ninosMatch = msg.match(new RegExp(paxNum + '\\s*ni[ñn]os?', 'i'));
+        // Mejora detección de PAX (Pasajeros)
+        const numPattern = "(\\d{1,2}|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)";
         
-        if (adultosMatch) session.adultos = textToNumber(adultosMatch[2]);
-        if (ninosMatch) session.ninos = textToNumber(ninosMatch[2]);
+        const aMatch = msg.match(new RegExp(numPattern + '\\s*adultos?', 'i'));
+        if (aMatch) session.adultos = textToNumber(aMatch[1]);
+
+        const nMatch = msg.match(new RegExp(numPattern + '\\s*ni[ñn]os?', 'i'));
+        if (nMatch) session.ninos = textToNumber(nMatch[1]);
+
+        // Si dice "X personas" o "X pax" y no hay desglose, lo tomamos como adultos
+        const tMatch = msg.match(new RegExp(numPattern + '\\s*(personas|pax|viajeros|en total|somos)', 'i'));
+        if (tMatch && !aMatch && !nMatch) session.adultos = textToNumber(tMatch[1]);
 
         // 5. IDENTIFICACIÓN CRM
         const accountKeywords = /factura|saldo|deuda|estado de cuenta|mis viajes|mi cuenta|resumen|pago/i;
@@ -194,8 +199,8 @@ app.post('/ai/plugin', async (req, res) => {
                     }).then(async r => {
                         console.log(`✅ Ticket DB Creado:`, JSON.stringify(r));
                         if (r.status === 'success') {
-                            const ticketUrl = `https://portal.gmgroup.com.co/viewticket/${r.ticket_id}/${r.ticketkey}`;
-                            const confirmation = `🎫 *¡Caso Registrado!*\n\n*Asunto:* ${subject}\n*Detalle:* ${message}\n\n🔗 Puedes seguir el estado de tu solicitud aquí:\n${ticketUrl}`;
+                            const ticketUrl = `https://portal.gmgroup.com.co/forms/tickets/${r.ticketkey}`;
+                            const confirmation = `🎫 *¡Caso Registrado!*\n\n*Asunto:* ${subject}\n\n🔗 Puedes ver y responder a tu solicitud aquí:\n${ticketUrl}`;
                             await whatsapp.sendText(cleanFrom, confirmation);
                         }
                     }).catch(e => console.error(`❌ Error Ticket DB:`, e.message));
@@ -221,6 +226,28 @@ app.post('/ai/plugin', async (req, res) => {
 
     } catch (error) {
         console.error(`💥 ERROR CRÍTICO:`, error);
+        return res.json({ status: "error" });
+    }
+});
+
+// Endpoint para notificar respuestas del staff (Desde Perfex)
+app.post('/ai/staff-reply', async (req, res) => {
+    const { ticket_id, staff_name, message, secret } = req.body;
+    
+    if (secret !== process.env.WEBHOOK_API_KEY) return res.status(401).json({ status: "error" });
+
+    try {
+        const phone = await perfex.getTicketContactPhone(ticket_id);
+        if (phone) {
+            const cleanPhone = phone.replace(/\D/g, '');
+            const formattedPhone = `+${cleanPhone}`;
+            const notification = `✉️ *Nueva respuesta de ${staff_name}*\n\n"${message.substring(0, 300)}${message.length > 300 ? '...' : ''}"\n\n🔗 Revisa la respuesta completa aquí:\nhttps://portal.gmgroup.com.co/forms/tickets/view/${ticket_id}`;
+            await whatsapp.sendText(formattedPhone, notification);
+            console.log(`🔔 Notificación de Staff enviada a ${formattedPhone}`);
+        }
+        return res.json({ status: "success" });
+    } catch (e) {
+        console.error("❌ Error en notificación staff:", e.message);
         return res.json({ status: "error" });
     }
 });
