@@ -57,234 +57,101 @@ app.get('/ai/debug', (req, res) => {
 
 app.post('/ai/plugin', async (req, res) => {
     try {
+        // 1. EXTRACCIÓN INICIAL (Sin lógica de negocio aún para evitar ReferenceError)
         const data = req.body?.data || req.body || {};
-        const rawMsg = (data.message || "").trim();
-        // Eliminar la firma del plan gratuito de la API para que no ensucie el procesamiento
-        const msg = rawMsg.replace(/Envía:\s*uno\.cobol\.com\.co/gi, "").trim();
         const from = String(data.phone || data.wid || data.from || "");
         const cleanFrom = from.split('@')[0].replace(/\D/g, '');
+        const rawMsg = (data.message || "").trim();
+        const msg = rawMsg.replace(/Envía:\s*uno\.cobol\.com\.co/gi, "").trim();
 
-        // 1. LOG INMEDIATO: Ver exactamente qué llega al servidor
+        // 2. LOGS Y CONTROL DE HORARIO
         console.log(`\n📥 WEBHOOK RECIBIDO - ${new Date().toISOString()}`);
-        console.log(`📦 CUERPO (BODY):`, req.body ? JSON.stringify(req.body) : 'VACÍO');
-
-        // Verificar si el bot debe operar según el horario configurado
         if (!aiConfig.isBotActive()) {
-            console.log(`⏳ [HORARIO LABORAL] Bot desactivado (Tel: ${cleanFrom}). Ignorando mensaje.`);
-            return res.json({ status: "success", message: "Bot inactive during business hours", stop: true });
+            console.log(`⏳ [HORARIO LABORAL] Bot desactivado (Tel: ${cleanFrom}).`);
+            return res.json({ status: "success", message: "Bot inactive", stop: true });
         }
 
-        if (req.headers['x-api-key']) {
-            console.log(`🔑 AUTH: X-API-KEY Detectado`);
+        // 3. SEGURIDAD Y FILTRADO
+        const secret = cleanString(req.body?.secret || req.body?.token || req.headers['x-api-key']);
+        if (secret !== cleanString(process.env.WEBHOOK_API_KEY)) {
+            return res.status(401).json({ status: "error", message: "Unauthorized" });
         }
 
-        // --- EXTRACCIÓN PREVENTIVA DE DATOS ---
+        if (!msg || !cleanFrom || cleanFrom.length > 15 || from.includes('@g.us')) {
+            return res.json({ status: "success", stop: true });
+        }
+
+        // 4. INICIALIZACIÓN DE SESIÓN
+        if (!sessions[cleanFrom]) sessions[cleanFrom] = { destination: null, adultos: 1, ninos: 0, bebes: 0, email: null };
+        const session = sessions[cleanFrom];
+
+        // 5. EXTRACCIÓN DE DATOS (Email, NIT, Destino, PAX)
         const emailFound = msg.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
         const nitMatch = msg.match(/\d{7,}/);
         const destinoDetectado = aiConfig.findDestination(msg);
-        
-        // Inicializar o recuperar sesión del usuario
-        if (cleanFrom && !sessions[cleanFrom]) {
-            sessions[cleanFrom] = { destination: null, adultos: 1, ninos: 0, bebes: 0 };
-        }
-        const session = sessions[cleanFrom] || { destination: null, adultos: 1, ninos: 0, bebes: 0 };
         if (destinoDetectado) session.destination = destinoDetectado;
-        
-        const secret = cleanString(req.body?.secret || req.body?.token || req.headers['x-api-key']);
-        const configSecret = cleanString(process.env.WEBHOOK_API_KEY);
-
-        if (secret !== configSecret) {
-            console.error(`❌ ERROR DE AUTENTICACIÓN: Secret recibido [${secret}] no coincide con configurado.`);
-            return res.json({ status: "error", message: "Unauthorized" });
-        }
-
-        if (!msg) { console.log("ℹ️ Mensaje vacío, ignorando."); return res.json({ status: "success", stop: true }); }
-
-        if (!cleanFrom) {
-            console.warn("⚠️ No se pudo extraer un número de teléfono. Revisa el formato del JSON arriba.");
-            return res.json({ status: "success", stop: true });
-        }
-
-        // Ignorar grupos (@g.us), canales (@newsletter), listas de difusión (broadcast) e IDs numéricos que excedan los 15 dígitos standard de teléfonos
-        const isGroupOrChannel = 
-            from.includes('@g.us') || 
-            from.includes('@newsletter') || 
-            from.toLowerCase().includes('broadcast') || 
-            cleanFrom.length > 15;
-
-        if (isGroupOrChannel) {
-            console.log(`🚫 Mensaje ignorado (Grupo/Canal/Difusión detectado: ${from})`);
-            return res.json({ status: "success", stop: true });
-        }
-
-        console.log(`\n-----------------------------------------`);
-        console.log(`📩 ORIGINAL: "${rawMsg.substring(0, 60)}${rawMsg.length > 60 ? '...' : ''}"`);
-        console.log(`📩 PROCESADO (Sin firma): "${msg}" | TEL: ${cleanFrom}`);
-
-        // --- PROCESAMIENTO DE MEMORIA Y PAX ---
-        const somosMatch   = msg.match(/somos\s+(\d+|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)/i);
-        const adultosMatch = msg.match(/(\d+|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s*adultos?/i);
-        const ninosMatch   = msg.match(/(\d+|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s*ni[ñn]os?/i);
-        const bebesMatch   = msg.match(/(\d+|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s*beb[eé]s?/i);
-        
-        if (adultosMatch) session.adultos = textToNumber(adultosMatch[1]);
-        else if (somosMatch) session.adultos = textToNumber(somosMatch[1]);
-        if (ninosMatch) session.ninos = textToNumber(ninosMatch[1]);
-        if (bebesMatch) session.bebes = textToNumber(bebesMatch[1]);
         if (emailFound) session.email = emailFound[0];
 
-        let destinoContext = '';
-        if (session.destination) {
-            const precio = aiConfig.calcularPrecio(session.destination, session.adultos, session.ninos, session.bebes);
-            const fmt = (n) => `$${n.toLocaleString('es-CO')} COP`;
-            console.log(`💰 [MEMORIA] Destino: ${session.destination.nombre} | PAX: ${session.adultos}A, ${session.ninos}N, ${session.bebes}B`);
-            destinoContext = `\nDESTINO ACTUAL EN CONVERSACIÓN: ${session.destination.nombre}
-PASAJEROS ACTUALES: ${session.adultos} Adultos, ${session.ninos} Niños.
-DURACION: ${session.destination.duracion_dias} dias / ${session.destination.duracion_noches} noches
-INCLUYE: ${session.destination.incluye}
-CALCULO DE PRECIOS:
-  - Adultos: ${session.adultos} x ${fmt(session.destination.precio_adulto)}
-  - Ninos: ${session.ninos} x ${fmt(session.destination.precio_nino)}
-  - TOTAL ESTIMADO: ${fmt(precio.total)}
-INSTRUCCION: Presenta este cálculo. Si el cliente quiere concretar o reservar y ya tenemos su correo (${session.email || 'NO LO TIENES'}), crea el ticket de venta (ID 1) inmediatamente.`;
-        }
+        const regexNums = /(\d+|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)/i;
+        const adultosMatch = msg.match(new RegExp(regexNums.source + '\\s*adultos?', 'i'));
+        const ninosMatch = msg.match(new RegExp(regexNums.source + '\\s*ni[ñn]os?', 'i'));
+        if (adultosMatch) session.adultos = textToNumber(adultosMatch[1]);
+        if (ninosMatch) session.ninos = textToNumber(ninosMatch[1]);
 
-        let isAccountInquiry = false;
-
-        // Keywords that strongly indicate the user wants to check their account/invoices
+        // 6. IDENTIFICACIÓN EN EL CRM (Sólo Clientes)
         const accountKeywords = /factura|saldo|deuda|estado de cuenta|mis viajes|mi cuenta|resumen|pago/i;
-
-        if (emailFound || nitMatch || accountKeywords.test(msg)) {
-            isAccountInquiry = true;
-        }
-
+        const isAccountInquiry = accountKeywords.test(msg);
         let customer = { found: false };
 
-        if (isAccountInquiry) {
-            if (emailFound) {
-                console.log(`🔍 Intentando por EMAIL: ${emailFound[0]}`);
-                customer = await perfex.getCustomerByEmail(emailFound[0]);
-                console.log(`📡 Respuesta Bridge (Email):`, JSON.stringify(customer));
-            }
-            if (!customer.found && nitMatch) {
-                console.log(`🔍 Intentando por NIT: ${nitMatch[0]}`);
-                customer = await perfex.getCustomerByVat(nitMatch[0]);
-                console.log(`📡 Respuesta Bridge (NIT):`, JSON.stringify(customer));
-            }
-            // Sólo buscamos por teléfono si explícitamente están pidiendo cuenta/facturas
-            if (!customer.found && accountKeywords.test(msg)) {
-                console.log(`🔍 Intentando por TELÉFONO: ${cleanFrom}`);
-                customer = await perfex.getCustomerByPhone(cleanFrom);
-                console.log(`📡 Respuesta Bridge (Tel):`, JSON.stringify(customer));
-            }
+        if (emailFound || nitMatch || isAccountInquiry) {
+            if (emailFound) customer = await perfex.getCustomerByEmail(emailFound[0]);
+            if (!customer.found && nitMatch) customer = await perfex.getCustomerByVat(nitMatch[0]);
+            if (!customer.found && isAccountInquiry) customer = await perfex.getCustomerByPhone(cleanFrom);
         }
 
+        // 7. CONSTRUCCIÓN DEL CONTEXTO PARA LA IA
+        let destinoContext = "";
+        if (session.destination) {
+            const p = aiConfig.calcularPrecio(session.destination, session.adultos, session.ninos, session.bebes);
+            const fmt = (n) => `$${n.toLocaleString('es-CO')} COP`;
+            console.log(`💰 [MEMORIA] ${session.destination.nombre} | PAX: ${session.adultos}A, ${session.ninos}N`);
+            destinoContext = `\nPLAN: ${session.destination.nombre}\nPAX: ${session.adultos} adultos, ${session.ninos} niños.\nTOTAL: ${fmt(p.total)}\nINCLUYE: ${session.destination.incluye}`;
+        }
+
+        // 8. LÓGICA DE RESPUESTA
+        let responseText = "";
         if (customer.found) {
-            console.log(`✅ IDENTIFICADO: ${customer.firstname} (${customer.company})`);
+            // Flujo Cliente Existente
+            const [inv, proj] = await Promise.all([perfex.getInvoices(customer.customerId), perfex.getProjects(customer.customerId)]);
+            let rigid = `*RESUMEN GM GROUP*\n` + (inv.length ? `📄 Facturas:\n` + inv.map(i => `• ${i.number}: $${i.total}`).join('\n') : `✅ Sin deudas.`);
+            await whatsapp.sendText(cleanFrom, rigid);
             
-            const [invoices, projects] = await Promise.all([
-                perfex.getInvoices(customer.customerId).catch(() => []),
-                perfex.getProjects(customer.customerId).catch(() => [])
-            ]);
-
-            console.log(`📊 Datos: ${invoices.length} facturas, ${projects.length} viajes.`);
-            
-            // Actualizar memoria de sesión con datos del CRM si están disponibles
-            if (customer.email) session.email = customer.email;
-
-            let rigidMsg = `*RESUMEN DE CUENTA GM GROUP* 🏛️\n`;
-            if (invoices.length > 0) {
-                rigidMsg += `\n📄 *Facturas Pendientes:*`;
-                invoices.forEach(i => rigidMsg += `\n• ${i.number}: $${i.total}\n  🔗 ${i.view_url}`);
-            } else {
-                rigidMsg += `\n✅ No tienes facturas pendientes.`;
-            }
-
-            // También enviamos el contexto a Gemini para que pueda saludar o complementar
-            const aiMsg = await gemini.generateText(`${aiConfig.PRE_PROMPT}
-            
-CLIENTE IDENTIFICADO: ${customer.firstname} ${customer.lastname}
-EMPRESA: ${customer.company}
-CORREO: ${customer.email}
-VIAJES ACTUALES: ${JSON.stringify(projects)}
-FACTURAS: ${JSON.stringify(invoices)}
-
-${destinoContext}
-
-INSTRUCCIÓN: El cliente ya está en el sistema. Si quiere concretar un viaje, USA EL TICKET DE VENTAS (ID 1) ya que tienes su correo: ${customer.email}. No se lo vuelvas a pedir.
-
-PREGUNTA DEL CLIENTE: "${msg}"
-
-${aiConfig.POST_PROMPT}`);
-            
-            await whatsapp.sendText(cleanFrom, rigidMsg);
-            if (aiMsg) {
-                // --- PROCESAMIENTO DE TICKET ---
-                const ticketRegex = /\[CREATE_TICKET:\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\]/i;
-                const ticketMatch = aiMsg.match(ticketRegex);
-                if (ticketMatch) {
-                    const [_, deptId, subject, messageBody] = ticketMatch;
-                    await perfex.createTicket({
-                        customerId: customer.customerId,
-                        subject: subject.trim(),
-                        message: `${messageBody.trim()}\n\n---\nTel: ${cleanFrom}\nEmail: ${customer.email || 'Identificado por CRM'}`,
-                        department: parseInt(deptId) || 1,
-                        priority: 2
-                    }).then(r => console.log(`✅ Ticket creado:`, r)).catch(e => console.error(`❌ Error Ticket:`, e.message));
-                }
-                // -------------------------------
-                const finalAi = aiMsg.replace(/\[CREATE_TICKET:.*?\]/g, '').trim();
-                await whatsapp.sendText(cleanFrom, finalAi);
-            }
-
-        } else if (isAccountInquiry && (emailFound || nitMatch || accountKeywords.test(msg))) {
-            console.log(`⚠️ FALLÓ IDENTIFICACIÓN TRAS INTENTO EXPLÍCITO`);
-            const aiFallback = await gemini.generateText(`Eres Laura de GM Group. El cliente intentó consultar información de su cuenta o facturas, pero NO lo encontramos en el sistema. Pídele amablemente que te confirme su correo electrónico o NIT para buscarlo bien. Mensaje del cliente: "${msg}"`);
-            await whatsapp.sendText(cleanFrom, aiFallback || aiConfig.FALLBACK_PROMPT);
+            responseText = await gemini.generateText(`${aiConfig.PRE_PROMPT}\nCLIENTE: ${customer.firstname}\nCORREO: ${customer.email}${destinoContext}\nVIAJES: ${JSON.stringify(proj)}\nINSTRUCCIÓN: Si quiere concretar, usa [CREATE_TICKET: 1 | Venta | Detalle] con su correo: ${customer.email}.\nPREGUNTA: "${msg}"\n${aiConfig.POST_PROMPT}`);
+        } else if (isAccountInquiry) {
+            // Flujo Fallo Identificación Crítica (Pedía facturas y no es cliente)
+            responseText = await gemini.generateText(`Eres Laura. El cliente pide datos de cuenta pero no lo hallamos. Pídele correo/NIT. Pregunta: "${msg}"`);
         } else {
-            console.log(`🤖 RESPUESTA GENERATIVA (Sin forzar identificación)`);
-
-            // Registro de Lead si proporciona correo y no existe
-            if (emailFound && !customer.found) {
-                console.log(`👤 Creando cliente potencial (Lead): ${emailFound[0]}`);
-                await perfex.createLead({
-                    name: `Cliente WhatsApp ${cleanFrom}`,
-                    email: emailFound[0],
-                    phonenumber: cleanFrom,
-                    description: `Interesado en viajar. Destino actual: ${session.destination ? session.destination.nombre : 'Por definir'}. PAX: ${session.adultos}A, ${session.ninos}N.`
-                }).catch(e => console.error("❌ Error Lead:", e.message));
+            // Flujo Prospecto / Lead / General
+            if (emailFound) {
+                await perfex.createLead({ name: `Prospecto ${cleanFrom}`, email: emailFound[0], phonenumber: cleanFrom, description: `Interés en ${session.destination?.nombre || 'viajar'}` }).catch(() => {});
             }
+            responseText = await gemini.generateText(`${aiConfig.PRE_PROMPT}\n${aiConfig.KNOWLEDGE_BASE}${destinoContext}\nDATOS SESIÓN: Correo: ${session.email || 'Desconocido'}\nINSTRUCCIÓN: Si tienes su correo y quiere concretar, crea el ticket de venta (ID 1).\nPREGUNTA: "${msg}"\n${aiConfig.POST_PROMPT}`);
+        }
 
-            const instruccion = session.destination
-                ? 'Presenta el calculo de precios de forma natural y entusiasta.'
-                : 'NO le pidas correo ni NIT a menos que quiera reservar o consultar facturas.';
-
-            const prompt = `${aiConfig.PRE_PROMPT}\n\n${aiConfig.KNOWLEDGE_BASE || ''}${destinoContext}\n\nPREGUNTA DEL CLIENTE: "${msg}"\n\nINSTRUCCION: ${instruccion}\n\n${aiConfig.POST_PROMPT}`;
-            const aiMsg = await gemini.generateText(prompt);
-
-            console.log(`🤖 [IA FULL RESPONSE]:\n${aiMsg}\n-------------------------`);
-
-            if (aiMsg) {
-                // --- PROCESAMIENTO DE TICKET ---
-                const ticketRegex = /\[CREATE_TICKET:\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\]/i;
-                const ticketMatch = aiMsg.match(ticketRegex);
-                if (ticketMatch) {
-                    const [_, deptId, subject, message] = ticketMatch;
-                    await perfex.createTicket({
-                        customerId: 0, // No identificado aún
-                        subject: subject.trim(),
-                        message: `${message.trim()}\n\n---\nTel: ${cleanFrom}\nEmail: ${emailFound ? emailFound[0] : 'No proporcionado'}`,
-                        department: parseInt(deptId) || 1,
-                        priority: 2
-                    }).then(r => console.log(`✅ Ticket creado (Anónimo):`, r)).catch(e => console.error(`❌ Error Ticket:`, e.message));
-                }
-                // -------------------------------
-                const finalAi = aiMsg.replace(/\[CREATE_TICKET:.*?\]/g, '').trim();
-                await whatsapp.sendText(cleanFrom, finalAi);
-            } else {
-                console.warn(`⚠️ Gemini no generó respuesta. Enviando Fallback.`);
-                await whatsapp.sendText(cleanFrom, aiConfig.FALLBACK_PROMPT);
+        // 9. PROCESAMIENTO DE TICKET Y ENVÍO FINAL
+        if (responseText) {
+            const ticketRegex = /\[CREATE_TICKET:\s*(\d+)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\]/i;
+            const match = responseText.match(ticketRegex);
+            if (match) {
+                await perfex.createTicket({ 
+                    customerId: customer.customerId || 0, 
+                    subject: match[2].trim(), 
+                    message: `${match[3].trim()}\n\n---\nTel: ${cleanFrom}\nEmail: ${session.email || customer.email || 'No provisto'}`, 
+                    department: parseInt(match[1]), 
+                    priority: 2 
+                }).then(r => console.log(`✅ Ticket:`, JSON.stringify(r))).catch(e => console.error(`❌ Ticket Error:`, e.message));
             }
+            await whatsapp.sendText(cleanFrom, responseText.replace(/\[CREATE_TICKET:.*?\]/g, '').trim());
         }
 
         return res.json({ status: "success" });
