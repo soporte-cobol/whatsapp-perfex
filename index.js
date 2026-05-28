@@ -171,13 +171,19 @@ app.post('/ai/plugin', async (req, res) => {
         }
 
         // 7. CONTEXTO IA
+        const isTravelMsg = aiConfig.isTravelRelated(msg);
         let destinoContext = "";
-        if (session.destination) {
+        if (session.destination && isTravelMsg) {
             const p = aiConfig.calcularPrecio(session.destination, session.adultos, session.ninos, session.bebes);
             const fmt = (n) => `$${n.toLocaleString('es-CO')} COP`;
             destinoContext = `\nPLAN: ${session.destination.nombre}\nPASAJEROS: ${session.adultos} adultos, ${session.ninos} niños, ${session.bebes} bebés.\nTOTAL: ${fmt(p.total)}`;
             console.log(`💰 PAX: ${session.adultos}A, ${session.ninos}N, ${session.bebes}B | ${session.destination.nombre}`);
         }
+
+        // Instrucción de scope (refuerzo cuando el mensaje no es de viajes)
+        const scopeInstruction = isTravelMsg
+            ? ""
+            : "\nSCOPE: El mensaje del cliente NO es una consulta de viajes. Responde SOLO con una oración corta y cálida, como: '¡Hola! Gracias por escribirnos, Gilma te atiende en breve.'. NO menciones destinos, planes ni precios.";
 
         // 8. GENERACIÓN RESPUESTA
         let aiResponse = "";
@@ -193,10 +199,10 @@ app.post('/ai/plugin', async (req, res) => {
                         (tix.length ? `🎫 Tickets recientes: ${tix.length}\n` : "");
             
             await whatsapp.sendText(cleanFrom, rigid);
-            aiResponse = await gemini.generateText(`${aiConfig.PRE_PROMPT}\nCLIENTE IDENTIFICADO: ${customer.firstname || 'Usuario'}\nCORREO: ${session.email || customer.email}${destinoContext}\nINSTRUCCIÓN: Ya identificamos al cliente y tenemos su correo. Responde su pregunta directamente. Solo crea un ticket si el cliente EXPLÍCITAMENTE quiere reservar, pagar o confirmar. NO abras ticket por preguntas informativas o cotizaciones.\nPREGUNTA: "${msg}"\n${aiConfig.POST_PROMPT}`);
+            aiResponse = await gemini.generateText(`${aiConfig.PRE_PROMPT}\nCLIENTE IDENTIFICADO: ${customer.firstname || 'Usuario'}\nCORREO: ${session.email || customer.email}${destinoContext}${scopeInstruction}\nINSTRUCCIÓN: Ya identificamos al cliente y tenemos su correo. Responde su pregunta directamente. Solo crea un ticket si el cliente EXPLÍCITAMENTE quiere reservar, pagar o confirmar. NO abras ticket por preguntas informativas o cotizaciones.\nPREGUNTA: "${msg}"\n${aiConfig.POST_PROMPT}`);
         } else {
             const instr = session.email ? `Ya tienes su correo (${session.email}). Asesora y cotiza libremente. Solo crea un ticket si el cliente EXPLÍCITAMENTE dice que quiere reservar, pagar o confirmar.` : "Asesora al cliente y pídele el correo amablemente cuando sea el momento adecuado.";
-            aiResponse = await gemini.generateText(`${aiConfig.PRE_PROMPT}\n${destinoContext}\nINSTRUCCIÓN: ${instr}\nPREGUNTA: "${msg}"\n${aiConfig.POST_PROMPT}`);
+            aiResponse = await gemini.generateText(`${aiConfig.PRE_PROMPT}\n${destinoContext}${scopeInstruction}\nINSTRUCCIÓN: ${instr}\nPREGUNTA: "${msg}"\n${aiConfig.POST_PROMPT}`);
         }
 
         // 9. PROCESAMIENTO TICKET (Garantizamos vinculación al Cliente recién creado)

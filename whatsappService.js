@@ -19,8 +19,9 @@ class WhatsAppService {
         // Eliminar emojis de 4 bytes que truncan MySQL utf8 (3-byte)
         const clean = String(message || '').replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '').trim();
 
-        // Límite conservador: 300 bytes (~150 chars en español)
-        const MAX_BYTES = 1000; 
+        // Límite generoso: 3500 bytes (~1750 chars en español)
+        // Antes era 1000 bytes, lo que causaba fragmentación excesiva (8+ burbujas)
+        const MAX_BYTES = 3500; 
         const MIN_CHUNK_BYTES = 10; // Mínimo de bytes para un fragmento de mensaje válido (evita "too short" errors)
 
         let rawChunks = this._splitMessage(clean, MAX_BYTES);
