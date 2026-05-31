@@ -183,7 +183,7 @@ app.post('/ai/plugin', async (req, res) => {
         // Instrucción de scope (refuerzo cuando el mensaje no es de viajes)
         const scopeInstruction = isTravelMsg
             ? ""
-            : "\nSCOPE: El mensaje del cliente NO es una consulta de viajes. Responde SOLO con una oración corta y cálida, como: '¡Hola! Gracias por escribirnos, Gilma te atiende en breve.'. NO menciones destinos, planes ni precios.";
+            : "\nSCOPE: El mensaje del cliente NO es una consulta de viajes. Responde SOLO con una oración corta y cálida, como: '¡Hola! Gracias por escribirnos. Un agente de viajes te atenderá muy pronto.'. NO menciones destinos, planes ni precios.";
 
         // 8. GENERACIÓN RESPUESTA
         let aiResponse = "";
